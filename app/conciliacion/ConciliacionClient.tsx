@@ -28,7 +28,7 @@ interface MovimientoConMatch {
     monto: number;
     metodo_pago: string;
     referencia_bancaria?: string;
-    socio: {
+    socio?: {
       numero_socio: number;
       nombre: string;
       apellido: string;

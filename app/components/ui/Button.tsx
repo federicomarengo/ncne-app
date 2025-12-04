@@ -1,10 +1,14 @@
+'use client';
+
 import React from 'react';
+import Spinner from './Spinner';
 
 type ButtonVariant = 'blue' | 'orange' | 'gray' | 'red' | 'default';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   children: React.ReactNode;
+  loading?: boolean;
 }
 
 const variantStyles: Record<ButtonVariant, string> = {
@@ -19,8 +23,13 @@ export default function Button({
   variant = 'default',
   children,
   className = '',
+  loading = false,
+  disabled,
   ...props
 }: ButtonProps) {
+  const isDisabled = disabled || loading;
+  const spinnerColor = variant === 'default' ? 'gray' : 'white';
+
   return (
     <button
       className={`
@@ -28,6 +37,7 @@ export default function Button({
         transition-colors duration-200
         disabled:opacity-50 disabled:cursor-not-allowed
         focus:outline-none focus:ring-2 focus:ring-offset-2
+        flex items-center justify-center gap-2
         ${variantStyles[variant]}
         ${variant === 'blue' ? 'focus:ring-blue-500' : ''}
         ${variant === 'orange' ? 'focus:ring-orange-500' : ''}
@@ -36,8 +46,10 @@ export default function Button({
         ${variant === 'default' ? 'focus:ring-gray-500' : ''}
         ${className}
       `}
+      disabled={isDisabled}
       {...props}
     >
+      {loading && <Spinner size="sm" color={spinnerColor} />}
       {children}
     </button>
   );

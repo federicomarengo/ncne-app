@@ -1,5 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import DashboardStats from './components/DashboardStats'
+import { Suspense } from 'react'
+import { StatCardSkeleton } from './components/ui/SkeletonLoader'
 
 async function getDashboardStats() {
   const supabase = await createClient()
@@ -95,9 +97,28 @@ async function getDashboardStats() {
   }
 }
 
-export default async function Home() {
+async function DashboardStatsWrapper() {
   const stats = await getDashboardStats()
 
+  return (
+    <DashboardStats
+      sociosActivos={stats.sociosActivos}
+      sociosActivosCambio={stats.sociosActivosCambio}
+      ingresosMes={stats.ingresosMes}
+      ingresosCambio={stats.ingresosCambio}
+      embarcaciones={stats.embarcaciones}
+      embarcacionesNuevas={stats.embarcacionesNuevas}
+      cuponesPendientes={stats.cuponesPendientes}
+      deudaTotal={stats.deudaTotal}
+      visitasMes={stats.visitasMes}
+    />
+  )
+}
+
+// Revalidar cada 60 segundos para datos relativamente frescos
+export const revalidate = 60;
+
+export default async function Home() {
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
@@ -107,17 +128,15 @@ export default async function Home() {
         </div>
 
         {/* Estadísticas */}
-        <DashboardStats
-          sociosActivos={stats.sociosActivos}
-          sociosActivosCambio={stats.sociosActivosCambio}
-          ingresosMes={stats.ingresosMes}
-          ingresosCambio={stats.ingresosCambio}
-          embarcaciones={stats.embarcaciones}
-          embarcacionesNuevas={stats.embarcacionesNuevas}
-          cuponesPendientes={stats.cuponesPendientes}
-          deudaTotal={stats.deudaTotal}
-          visitasMes={stats.visitasMes}
-        />
+        <Suspense fallback={
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <StatCardSkeleton key={i} />
+            ))}
+          </div>
+        }>
+          <DashboardStatsWrapper />
+        </Suspense>
 
         {/* Accesos Rápidos */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">

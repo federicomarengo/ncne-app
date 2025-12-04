@@ -330,7 +330,14 @@ export default function DetalleSocioModal({
             Embarcaciones
           </h3>
           {loadingEmbarcaciones ? (
-            <p className="text-sm text-gray-500">Cargando embarcaciones...</p>
+            <div className="space-y-3">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <div key={i} className="bg-gray-50 border border-gray-200 rounded-lg p-4 animate-pulse">
+                  <div className="h-4 bg-gray-200 rounded w-32 mb-2"></div>
+                  <div className="h-3 bg-gray-200 rounded w-24"></div>
+                </div>
+              ))}
+            </div>
           ) : embarcaciones.length === 0 ? (
             <p className="text-sm text-gray-500">El socio no tiene embarcaciones registradas</p>
           ) : (
@@ -395,26 +402,37 @@ export default function DetalleSocioModal({
           <h3 className="text-base font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
             Resumen de Cuenta
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <p className="text-sm font-medium text-red-700 mb-1">Deuda Total</p>
-              <p className="text-2xl font-bold text-red-900">
-                ${resumenCuenta.deudaTotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="bg-gray-50 border border-gray-200 rounded-lg p-4 animate-pulse">
+                  <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
+                  <div className="h-8 bg-gray-200 rounded w-32"></div>
+                </div>
+              ))}
             </div>
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <p className="text-sm font-medium text-green-700 mb-1">Total Pagado</p>
-              <p className="text-2xl font-bold text-green-900">
-                ${resumenCuenta.totalPagado.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p className="text-sm font-medium text-red-700 mb-1">Deuda Total</p>
+                <p className="text-2xl font-bold text-red-900">
+                  ${resumenCuenta.deudaTotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <p className="text-sm font-medium text-green-700 mb-1">Total Pagado</p>
+                <p className="text-2xl font-bold text-green-900">
+                  ${resumenCuenta.totalPagado.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <p className="text-sm font-medium text-yellow-700 mb-1">Items Pendientes</p>
+                <p className="text-2xl font-bold text-yellow-900">
+                  {resumenCuenta.itemsPendientes}
+                </p>
+              </div>
             </div>
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <p className="text-sm font-medium text-yellow-700 mb-1">Items Pendientes</p>
-              <p className="text-2xl font-bold text-yellow-900">
-                {resumenCuenta.itemsPendientes}
-              </p>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Historial Unificado de Movimientos */}

@@ -15,11 +15,22 @@ export default function SociosTable({ socios, onRefresh }: SociosTableProps) {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
   const [estadoFilter, setEstadoFilter] = useState<EstadoSocio | 'Todos'>('Todos');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const filteredSocios = useMemo(
     () => filterSocios(socios, searchTerm, estadoFilter),
     [socios, searchTerm, estadoFilter]
   );
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    if (onRefresh) {
+      await onRefresh();
+    }
+    // Forzar recarga de la página
+    router.refresh();
+    setIsRefreshing(false);
+  };
 
   const getEstadoBadgeClass = (estado: string) => {
     switch (estado) {

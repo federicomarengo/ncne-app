@@ -2,6 +2,8 @@ import { createClient } from '@/utils/supabase/server';
 import ConciliacionClient from './ConciliacionClient';
 import { MovimientoBancario } from '@/app/types/movimientos_bancarios';
 
+export const dynamic = 'force-dynamic';
+
 async function getMovimientosBancarios(): Promise<MovimientoBancario[]> {
   try {
     const supabase = await createClient();
