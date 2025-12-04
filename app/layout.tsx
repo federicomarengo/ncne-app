@@ -4,6 +4,7 @@ import { SidebarProvider } from './contexts/SidebarContext'
 import Sidebar from './components/Sidebar'
 import MainContent from './components/MainContent'
 import GlobalLoading from './components/ui/GlobalLoading'
+import LayoutWrapper from './LayoutWrapper'
 
 export const metadata: Metadata = {
   title: 'Club Náutico Embalse - Sistema de Gestión',
@@ -19,10 +20,7 @@ export default function RootLayout({
     <html lang="es">
       <body className="antialiased bg-gray-50" suppressHydrationWarning>
         <GlobalLoading />
-        <SidebarProvider>
-          <Sidebar />
-          <MainContent>{children}</MainContent>
-        </SidebarProvider>
+        <LayoutWrapper>{children}</LayoutWrapper>
       </body>
     </html>
   )

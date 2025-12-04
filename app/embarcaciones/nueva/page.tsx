@@ -43,7 +43,7 @@ export default function NuevaEmbarcacionPage() {
                 .from('socios')
                 .select('id, numero_socio, apellido, nombre')
                 .eq('estado', 'activo')
-                .order('numero_socio', { ascending: true });
+                .order('apellido', { ascending: true });
 
             if (error) {
                 console.error('Error al cargar socios:', error);
@@ -204,7 +204,7 @@ export default function NuevaEmbarcacionPage() {
                                         <option value="">Seleccionar socio...</option>
                                         {socios.map((socio) => (
                                             <option key={socio.id} value={socio.id}>
-                                                {socio.numero_socio} - {getNombreCompleto(socio)}
+                                                {getNombreCompleto(socio)} (Socio #{socio.numero_socio})
                                             </option>
                                         ))}
                                     </select>

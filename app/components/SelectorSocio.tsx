@@ -47,18 +47,52 @@ export default function SelectorSocio({
       return;
     }
 
-    const filtrados = socios.filter(socio => {
-      const busquedaLower = busqueda.toLowerCase();
-      const nombreCompleto = `${socio.apellido}, ${socio.nombre}`.toLowerCase();
-      const numeroSocio = socio.numero_socio.toString();
-      const dni = socio.dni?.toString() || '';
+    const busquedaLower = busqueda.toLowerCase();
+    
+    // Priorizar búsqueda por nombre/apellido, luego número de socio, luego DNI
+    const filtrados = socios
+      .map(socio => {
+        const nombreCompleto = `${socio.apellido}, ${socio.nombre}`.toLowerCase();
+        const apellidoLower = socio.apellido.toLowerCase();
+        const nombreLower = socio.nombre.toLowerCase();
+        const numeroSocio = socio.numero_socio.toString();
+        const dni = socio.dni?.toString().toLowerCase() || '';
 
-      return (
-        nombreCompleto.includes(busquedaLower) ||
-        numeroSocio.includes(busquedaLower) ||
-        dni.includes(busquedaLower)
-      );
-    });
+        // Calcular score de relevancia: mayor score = más relevante
+        let score = 0;
+        
+        // Prioridad alta: coincidencia en nombre completo
+        if (nombreCompleto.includes(busquedaLower)) {
+          score += 100;
+        }
+        // Prioridad alta: coincidencia en apellido
+        if (apellidoLower.includes(busquedaLower)) {
+          score += 80;
+        }
+        // Prioridad media: coincidencia en nombre
+        if (nombreLower.includes(busquedaLower)) {
+          score += 60;
+        }
+        // Prioridad baja: coincidencia en número de socio
+        if (numeroSocio.includes(busquedaLower)) {
+          score += 20;
+        }
+        // Prioridad baja: coincidencia en DNI
+        if (dni.includes(busquedaLower)) {
+          score += 10;
+        }
+
+        return { socio, score };
+      })
+      .filter(item => item.score > 0)
+      .sort((a, b) => {
+        // Ordenar por score descendente, luego por apellido
+        if (b.score !== a.score) {
+          return b.score - a.score;
+        }
+        return a.socio.apellido.localeCompare(b.socio.apellido);
+      })
+      .map(item => item.socio);
 
     setSociosFiltrados(filtrados);
     setMostrarLista(filtrados.length > 0);
@@ -145,7 +179,7 @@ export default function SelectorSocio({
             setMostrarLista(true);
           }
         }}
-        placeholder="Buscar por nombre, número de socio o DNI..."
+        placeholder="Buscar por apellido, nombre, número de socio o DNI..."
         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
       />
 
@@ -163,12 +197,13 @@ export default function SelectorSocio({
               className="w-full text-left px-4 py-2 hover:bg-blue-50 focus:bg-blue-50 focus:outline-none transition-colors"
             >
               <div className="font-medium text-gray-900">
-                {socio.apellido}, {socio.nombre}
+                {socio.apellido}, {socio.nombre} (Socio #{socio.numero_socio})
               </div>
-              <div className="text-sm text-gray-500">
-                Socio #{socio.numero_socio}
-                {socio.dni && ` • DNI: ${socio.dni}`}
-              </div>
+              {socio.dni && (
+                <div className="text-sm text-gray-500">
+                  DNI: {socio.dni}
+                </div>
+              )}
             </button>
           ))}
         </div>

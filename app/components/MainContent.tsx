@@ -9,13 +9,24 @@ export default function MainContent({ children }: { children: React.ReactNode })
 
   return (
     <div 
-      className="transition-all duration-300"
-      style={{ marginLeft: `${sidebarWidth}px` }}
+      className="transition-all duration-300 lg:ml-0"
+      style={{ marginLeft: `0px` }}
     >
-      <Header />
-      <main className="pt-16">
-        {children}
-      </main>
+      <div 
+        className="hidden lg:block transition-all duration-300"
+        style={{ marginLeft: `${sidebarWidth}px` }}
+      >
+        <Header />
+        <main className="pt-16">
+          {children}
+        </main>
+      </div>
+      <div className="lg:hidden">
+        <Header />
+        <main className="pt-16">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

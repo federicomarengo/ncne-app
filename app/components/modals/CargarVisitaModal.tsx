@@ -64,7 +64,7 @@ export default function CargarVisitaModal({
         .from('socios')
         .select('id, numero_socio, apellido, nombre')
         .eq('estado', 'activo')
-        .order('numero_socio', { ascending: true });
+        .order('apellido', { ascending: true });
 
       if (error) {
         console.error('Error al cargar socios:', error);
@@ -245,7 +245,7 @@ export default function CargarVisitaModal({
                 <option value="">Seleccionar socio...</option>
                 {socios.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.numero_socio} - {getNombreCompleto(s)}
+                    {getNombreCompleto(s)} (Socio #{s.numero_socio})
                   </option>
                 ))}
               </select>

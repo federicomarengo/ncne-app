@@ -22,7 +22,7 @@ export default function EmbarcacionesTable({ embarcaciones, onRefresh }: Embarca
     [embarcaciones, searchTerm, tipoFilter, socioFilter]
   );
 
-  // Obtener lista única de socios para el filtro
+  // Obtener lista única de socios para el filtro, ordenados por apellido
   const sociosUnicos = useMemo(() => {
     const sociosMap = new Map();
     embarcaciones.forEach((emb) => {
@@ -30,7 +30,11 @@ export default function EmbarcacionesTable({ embarcaciones, onRefresh }: Embarca
         sociosMap.set(emb.socio_id, emb.socio);
       }
     });
-    return Array.from(sociosMap.values());
+    return Array.from(sociosMap.values()).sort((a: any, b: any) => {
+      const apellidoA = a.apellido || '';
+      const apellidoB = b.apellido || '';
+      return apellidoA.localeCompare(apellidoB);
+    });
   }, [embarcaciones]);
 
 
@@ -110,7 +114,7 @@ export default function EmbarcacionesTable({ embarcaciones, onRefresh }: Embarca
               <option value="Todos">Todos</option>
               {sociosUnicos.map((socio) => (
                 <option key={socio.id} value={socio.id.toString()}>
-                  {socio.numero_socio} - {getNombreCompleto(socio as any)}
+                  {getNombreCompleto(socio as any)} (Socio #{socio.numero_socio})
                 </option>
               ))}
             </select>
@@ -197,7 +201,7 @@ export default function EmbarcacionesTable({ embarcaciones, onRefresh }: Embarca
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                       {embarcacion.socio ? (
                         <span>
-                          {embarcacion.socio.numero_socio} - {getNombreCompleto(embarcacion.socio as any)}
+                          {getNombreCompleto(embarcacion.socio as any)} (Socio #{embarcacion.socio.numero_socio})
                         </span>
                       ) : (
                         '-'
