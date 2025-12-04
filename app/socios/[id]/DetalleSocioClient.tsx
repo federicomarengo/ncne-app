@@ -51,7 +51,17 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
         try {
             const supabase = createClient();
 
-            // Obtener todos los cupones pendientes (no solo vencidos)
+            // Obtener TODOS los cupones del socio (sin filtrar por estado) para calcular el saldo
+            const { data: todosLosCupones, error: errorTodosCupones } = await supabase
+                .from('cupones')
+                .select('monto_total')
+                .eq('socio_id', socio.id);
+
+            if (errorTodosCupones) {
+                console.error('Error al cargar todos los cupones:', errorTodosCupones);
+            }
+
+            // Obtener cupones pendientes para mostrar información (cantidad y próximo vencimiento)
             const { data: cuponesPendientes, error: errorCupones } = await supabase
                 .from('cupones')
                 .select('monto_total, estado, fecha_vencimiento')
@@ -60,7 +70,7 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                 .order('fecha_vencimiento', { ascending: true });
 
             if (errorCupones) {
-                console.error('Error al cargar cupones:', errorCupones);
+                console.error('Error al cargar cupones pendientes:', errorCupones);
             }
 
             // Obtener total pagado
@@ -73,9 +83,10 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                 console.error('Error al cargar pagos:', errorPagos);
             }
 
-            const deudaTotal = cuponesPendientes?.reduce((sum, c) => sum + (parseFloat(c.monto_total) || 0), 0) || 0;
+            // Calcular total de TODOS los cupones (pendientes + pagados)
+            const totalCupones = todosLosCupones?.reduce((sum, c) => sum + (parseFloat(c.monto_total) || 0), 0) || 0;
             const totalPagado = pagos?.reduce((sum, p) => sum + (parseFloat(p.monto) || 0), 0) || 0;
-            const saldo = totalPagado - deudaTotal; // Positivo = a favor, Negativo = debe
+            const saldo = totalPagado - totalCupones; // Positivo = a favor, Negativo = debe
             const cuponesPendientesCount = cuponesPendientes?.length || 0;
 
             // Calcular próximo vencimiento

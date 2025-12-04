@@ -95,12 +95,15 @@ export default function DashboardSocio({ socio, onLogout }: DashboardSocioProps)
   };
 
   // Calcular resumen de cuenta
+  // Obtener cupones pendientes para mostrar información (cantidad y próximo vencimiento)
   const cuponesPendientes = cupones.filter(c => c.estado === 'pendiente' || c.estado === 'vencido');
   const deudaTotal = cuponesPendientes.reduce((sum, c) => sum + parseFloat(c.monto_total.toString()), 0);
   
-  // Calcular saldo (total pagado - deuda)
+  // Calcular saldo (total pagado - todos los cupones)
+  // Incluir TODOS los cupones (pendientes + pagados) para el cálculo del saldo
+  const totalCupones = cupones.reduce((sum, c) => sum + parseFloat(c.monto_total.toString()), 0);
   const totalPagado = pagos.reduce((sum, p) => sum + parseFloat(p.monto.toString()), 0);
-  const saldo = totalPagado - deudaTotal;
+  const saldo = totalPagado - totalCupones;
 
   // Próximo vencimiento
   const cuponesPendientesOrdenados = [...cuponesPendientes].sort((a, b) => 
