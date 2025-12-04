@@ -8,6 +8,7 @@ import { formatDate } from '@/app/utils/formatDate';
 import { createClient } from '@/utils/supabase/client';
 import { ItemCupon } from '@/app/types/cupones';
 import { getMetodoPagoLabel } from '@/app/types/pagos';
+import SocioKeywordsPanel from '@/app/components/panels/SocioKeywordsPanel';
 
 interface DetalleSocioClientProps {
     socio: Socio;
@@ -690,6 +691,11 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                                     )}
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Keywords Relacionadas */}
+                        <div>
+                            <SocioKeywordsPanel socioId={socio.id} />
                         </div>
 
                         {/* Historial Unificado de Movimientos */}

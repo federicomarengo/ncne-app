@@ -8,6 +8,7 @@ import { MovimientoProcesado, MatchResult } from '@/app/types/movimientos_bancar
 import { verificarDuplicadoPago } from './verificarDuplicadoPago';
 import { generarHashMovimiento } from './generarHashMovimiento';
 import { logError } from './logErrores';
+import { normalizarCUITCUIL, normalizarDNI } from './normalizarTexto';
 
 interface ConfirmarPagoResult {
   success: boolean;
@@ -25,7 +26,8 @@ export async function confirmarPagoDesdeMovimiento(
   movimiento: MovimientoProcesado,
   supabase: any,
   socioIdManual?: number,
-  cuponesPrecargados?: Map<number, any[]>
+  cuponesPrecargados?: Map<number, any[]>,
+  guardarKeywords?: boolean
 ): Promise<ConfirmarPagoResult> {
   // Si se proporciona socioIdManual, usarlo; de lo contrario, requerir match
   const socioId = socioIdManual;
@@ -264,6 +266,43 @@ export async function confirmarPagoDesdeMovimiento(
       })
       .eq('id', movimientoGuardado.id);
 
+    // 7. Guardar keywords si fue asignación manual desde sin match
+    // SOLO guarda CUIT/CUIL, NUNCA DNI
+    // El nombre se guarda como info adicional pero NO se usa en matching
+    if (guardarKeywords && socioId) {
+      try {
+        // Guardar CUIT si existe y está normalizado
+        if (movimiento.cuit_cuil) {
+          const cuitNormalizado = normalizarCUITCUIL(movimiento.cuit_cuil);
+          if (cuitNormalizado.length >= 11) {
+            // Construir nombre completo si está disponible (info adicional)
+            const nombreCompleto = movimiento.nombre_transferente && movimiento.apellido_transferente
+              ? `${movimiento.apellido_transferente}, ${movimiento.nombre_transferente}`.trim()
+              : movimiento.nombre_transferente || movimiento.apellido_transferente || null;
+
+            const { error: errorKeyword } = await supabase
+              .from('socios_keywords')
+              .insert({
+                socio_id: socioId,
+                tipo: 'cuit',
+                valor: cuitNormalizado,
+                nombre_info: nombreCompleto, // Info adicional, no se usa en matching
+              })
+              .select();
+
+            // Ignorar errores de duplicados (constraint único)
+            if (errorKeyword && errorKeyword.code !== '23505') {
+              console.error('Error al guardar keyword:', errorKeyword);
+            }
+          }
+        }
+        // NUNCA guardar DNI - solo CUIT/CUIL
+      } catch (error) {
+        // Logging silencioso - no fallar la confirmación por error en keywords
+        console.error('Error al guardar keywords (no crítico):', error);
+      }
+    }
+
     return {
       success: true,
       pagoId: pago.id,
@@ -352,11 +391,14 @@ export async function confirmarPagosEnLote(
       onProgress(i + 1, total, `Confirmando pago ${i + 1} de ${total}...`);
     }
     
+    // NO guardar keywords en confirmarPagosEnLote
+    // Solo se guardan cuando se asigna manualmente desde sin match
     const resultado = await confirmarPagoDesdeMovimiento(
       movimiento, 
       supabase,
       match.socio_id || undefined, // Pasar socio_id del match
       cuponesPorSocio // Pasar cupones pre-cargados
+      // NO pasar guardarKeywords aquí - solo se guarda en asignación manual desde sin match
     );
     
     if (resultado.success) {

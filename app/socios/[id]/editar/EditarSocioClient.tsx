@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Socio, EstadoSocio } from '@/app/types/socios';
 import { createClient } from '@/utils/supabase/client';
+import SocioKeywordsPanel from '@/app/components/panels/SocioKeywordsPanel';
 
 interface EditarSocioClientProps {
     socio: Socio;
@@ -406,6 +407,11 @@ export default function EditarSocioClient({ socio }: EditarSocioClientProps) {
                                     placeholder="Observaciones adicionales sobre el socio..."
                                 />
                             </div>
+                        </div>
+
+                        {/* Keywords Panel */}
+                        <div className="mt-6">
+                            <SocioKeywordsPanel socioId={socio.id} />
                         </div>
 
                         {/* Error Message */}

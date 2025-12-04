@@ -48,6 +48,10 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [seleccionados, setSeleccionados] = useState<Set<number>>(new Set());
+  const [seleccionadosSinMatch, setSeleccionadosSinMatch] = useState<Set<number>>(new Set());
+  const [sociosAsignadosSinMatch, setSociosAsignadosSinMatch] = useState<Map<number, number>>(new Map());
+  const [seleccionadosExactos, setSeleccionadosExactos] = useState<Set<number>>(new Set());
+  const [sociosCambiadosExactos, setSociosCambiadosExactos] = useState<Map<number, number>>(new Map());
   const [progresoConfirmacion, setProgresoConfirmacion] = useState<{
     current: number;
     total: number;
@@ -344,26 +348,43 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
     setEstadisticas(stats);
   };
 
-  // Confirmar todos los movimientos con match exacto
-  const handleConfirmarTodosExactos = async () => {
-    if (movimientosMatchExacto.length === 0) return;
+  // Confirmar movimientos exactos (seleccionados o todos)
+  const handleConfirmarExactos = async () => {
+    // Si hay seleccionados, usar esos; si no, usar todos
+    const movimientosAConfirmar = seleccionadosExactos.size > 0
+      ? Array.from(seleccionadosExactos).map(index => movimientosMatchExacto[index]).filter(Boolean)
+      : movimientosMatchExacto;
 
-    if (!window.confirm(`¿Confirma que desea procesar ${movimientosMatchExacto.length} pagos?`)) {
+    if (movimientosAConfirmar.length === 0) return;
+
+    if (!window.confirm(`¿Confirma que desea procesar ${movimientosAConfirmar.length} pagos?`)) {
       return;
     }
 
     setConfirmandoPagos(true);
     setError(null);
     setSuccess(null);
-    setProgresoConfirmacion({ current: 0, total: movimientosMatchExacto.length, mensaje: 'Iniciando confirmación...' });
+    setProgresoConfirmacion({ current: 0, total: movimientosAConfirmar.length, mensaje: 'Iniciando confirmación...' });
 
     try {
       const supabase = createSupabaseClient();
       
-      const movimientosParaConfirmar = movimientosMatchExacto.map(m => ({
-        movimiento: m.movimiento,
-        match: m.match,
-      }));
+      // Aplicar cambios de socio si los hay
+      const movimientosParaConfirmar = movimientosAConfirmar.map(m => {
+        const index = movimientosMatchExacto.findIndex(exacto => exacto.movimiento === m.movimiento);
+        const socioCambiado = index !== -1 ? sociosCambiadosExactos.get(index) : null;
+        
+        return {
+          movimiento: m.movimiento,
+          match: socioCambiado ? {
+            ...m.match,
+            socio_id: socioCambiado,
+            nivel: 'E' as const,
+            porcentaje_confianza: 100,
+            razon: 'Socio cambiado manualmente'
+          } : m.match,
+        };
+      });
 
       const resultado = await confirmarPagosEnLote(
         movimientosParaConfirmar, 
@@ -371,6 +392,7 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
         (current, total, mensaje) => {
           setProgresoConfirmacion({ current, total, mensaje });
         }
+        // NO guardar keywords en match exacto, solo en sin match
       );
 
       if (resultado.exitosos > 0) {
@@ -381,36 +403,19 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
 
         // Remover los movimientos confirmados de la lista
         setMovimientosProcesados((prev) =>
-          prev.filter((m, index) => {
-            const esMatchExacto = m.match.nivel === 'A' || m.match.nivel === 'B';
-            if (!esMatchExacto) return true;
-            const indice = movimientosMatchExacto.findIndex(
-              (exacto) => exacto.movimiento === m.movimiento
-            );
-            return indice === -1 || resultado.errores.some(
-              (err) => err.movimiento === m.movimiento
-            );
-          })
+          prev.filter((m) => !movimientosAConfirmar.some((sel) => sel.movimiento === m.movimiento))
         );
+
+        // Limpiar selecciones
+        setSeleccionadosExactos(new Set());
+        setSociosCambiadosExactos(new Map());
 
         // Actualizar estadísticas
         actualizarEstadisticas(
-          movimientosProcesados.filter((m, index) => {
-            const esMatchExacto = m.match.nivel === 'A' || m.match.nivel === 'B';
-            if (!esMatchExacto) return true;
-            const indice = movimientosMatchExacto.findIndex(
-              (exacto) => exacto.movimiento === m.movimiento
-            );
-            return indice === -1 || resultado.errores.some(
-              (err) => err.movimiento === m.movimiento
-            );
-          })
+          movimientosProcesados.filter((m) => 
+            !movimientosAConfirmar.some((sel) => sel.movimiento === m.movimiento)
+          )
         );
-
-        // Refrescar la página después de 2 segundos
-        setTimeout(() => {
-          router.refresh();
-        }, 2000);
       } else {
         setError(`No se pudo confirmar ningún pago. ${resultado.errores[0]?.error || ''}`);
       }
@@ -481,13 +486,126 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
             !movimientosSeleccionados.some((sel) => sel.movimiento === m.movimiento)
           )
         );
-
-        // Refrescar la página después de 2 segundos
-        setTimeout(() => {
-          router.refresh();
-        }, 2000);
       } else {
         setError(`No se pudo confirmar ningún pago. ${resultado.errores[0]?.error || ''}`);
+      }
+    } catch (err: any) {
+      setError(`Error al confirmar pagos: ${err.message}`);
+    } finally {
+      setConfirmandoPagos(false);
+      setProgresoConfirmacion(null);
+    }
+  };
+
+  // Confirmar movimientos sin match seleccionados
+  const handleConfirmarSeleccionadosSinMatch = async () => {
+    if (seleccionadosSinMatch.size === 0) return;
+
+    // Verificar que todos tengan socio asignado
+    const indicesSeleccionados = Array.from(seleccionadosSinMatch);
+    const movimientosSinSocio = indicesSeleccionados.filter(index => !sociosAsignadosSinMatch.has(index));
+    
+    if (movimientosSinSocio.length > 0) {
+      setError('Todos los movimientos seleccionados deben tener un socio asignado');
+      return;
+    }
+
+    if (!window.confirm(`¿Confirma que desea procesar ${seleccionadosSinMatch.size} pagos seleccionados?`)) {
+      return;
+    }
+
+    setConfirmandoPagos(true);
+    setError(null);
+    setSuccess(null);
+    setProgresoConfirmacion({ current: 0, total: seleccionadosSinMatch.size, mensaje: 'Iniciando confirmación...' });
+
+    try {
+      const supabase = createSupabaseClient();
+      
+      const movimientosSeleccionados = indicesSeleccionados
+        .map((index) => {
+          const movimiento = movimientosSinMatch[index];
+          const socioId = sociosAsignadosSinMatch.get(index);
+          return movimiento && socioId ? { movimiento, socioId } : null;
+        })
+        .filter((m): m is { movimiento: MovimientoConMatch; socioId: number } => m !== null);
+
+      if (movimientosSeleccionados.length === 0) {
+        setError('No hay movimientos seleccionados válidos');
+        return;
+      }
+
+      // Confirmar cada uno con su socio asignado
+      let exitosos = 0;
+      let fallidos = 0;
+      const errores: any[] = [];
+
+      for (let i = 0; i < movimientosSeleccionados.length; i++) {
+        const { movimiento, socioId } = movimientosSeleccionados[i];
+        setProgresoConfirmacion({
+          current: i + 1,
+          total: movimientosSeleccionados.length,
+          mensaje: `Confirmando pago ${i + 1} de ${movimientosSeleccionados.length}...`
+        });
+
+        try {
+          const matchActualizado: MatchResult = {
+            ...movimiento.match,
+            socio_id: socioId,
+            nivel: 'E',
+            porcentaje_confianza: 100,
+            razon: 'Asignación manual'
+          };
+
+          const resultado = await confirmarPagoDesdeMovimiento(
+            movimiento.movimiento,
+            supabase,
+            socioId,
+            undefined, // cuponesPrecargados
+            true // guardarKeywords - es asignación manual desde sin match
+          );
+
+          if (resultado.success) {
+            exitosos++;
+          } else {
+            fallidos++;
+            errores.push({
+              movimiento: movimiento.movimiento,
+              error: resultado.error || 'Error desconocido'
+            });
+          }
+        } catch (err: any) {
+          fallidos++;
+          errores.push({
+            movimiento: movimiento.movimiento,
+            error: err.message || 'Error desconocido'
+          });
+        }
+      }
+
+      if (exitosos > 0) {
+        setSuccess(
+          `Se confirmaron exitosamente ${exitosos} pagos. ` +
+          (fallidos > 0 ? `${fallidos} pagos fallaron.` : '')
+        );
+
+        // Remover los movimientos confirmados de la lista
+        setMovimientosProcesados((prev) =>
+          prev.filter((m) => !movimientosSeleccionados.some((sel) => sel.movimiento.movimiento === m.movimiento))
+        );
+
+        // Limpiar selecciones
+        setSeleccionadosSinMatch(new Set());
+        setSociosAsignadosSinMatch(new Map());
+
+        // Actualizar estadísticas
+        actualizarEstadisticas(
+          movimientosProcesados.filter((m) => 
+            !movimientosSeleccionados.some((sel) => sel.movimiento.movimiento === m.movimiento)
+          )
+        );
+      } else {
+        setError(`No se pudo confirmar ningún pago. ${errores[0]?.error || ''}`);
       }
     } catch (err: any) {
       setError(`Error al confirmar pagos: ${err.message}`);
@@ -751,11 +869,16 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
                   </h3>
                   {movimientosMatchExacto.length > 0 && (
                     <button
-                      onClick={handleConfirmarTodosExactos}
+                      onClick={handleConfirmarExactos}
                       disabled={confirmandoPagos}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {confirmandoPagos ? 'Confirmando...' : `Confirmar Todos (${movimientosMatchExacto.length})`}
+                      {confirmandoPagos 
+                        ? 'Confirmando...' 
+                        : seleccionadosExactos.size > 0
+                        ? `Confirmar Seleccionados (${seleccionadosExactos.size})`
+                        : `Confirmar Todos (${movimientosMatchExacto.length})`
+                      }
                     </button>
                   )}
                 </div>
@@ -763,7 +886,16 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
                   movimientos={movimientosMatchExacto} 
                   formatCurrency={formatCurrency} 
                   formatDate={formatDate}
+                  seleccionables
+                  seleccionados={seleccionadosExactos}
+                  setSeleccionados={setSeleccionadosExactos}
+                  sociosAsignados={sociosCambiadosExactos}
+                  setSociosAsignados={setSociosCambiadosExactos}
                   onVerDetalles={(item) => {
+                    setMovimientoSeleccionado(item);
+                    setModalDetalleAbierto(true);
+                  }}
+                  onCambiarSocio={(item, index) => {
                     setMovimientoSeleccionado(item);
                     setModalDetalleAbierto(true);
                   }}
@@ -810,21 +942,39 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
             {/* Tab: Sin Match */}
             {tabActivo === 'sin_match' && (
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                  Movimientos Sin Match ({movimientosSinMatch.length})
-                </h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  Estos movimientos requieren asignación manual a un socio o marcar como "No es socio"
-                </p>
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Movimientos Sin Match ({movimientosSinMatch.length})
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Seleccione los movimientos y asigne un socio a cada uno, luego confirme en lote
+                    </p>
+                  </div>
+                  {seleccionadosSinMatch.size > 0 && (
+                    <button
+                      onClick={handleConfirmarSeleccionadosSinMatch}
+                      disabled={confirmandoPagos}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {confirmandoPagos ? 'Confirmando...' : `Confirmar Seleccionados (${seleccionadosSinMatch.size})`}
+                    </button>
+                  )}
+                </div>
                 <MovimientosTable 
                   movimientos={movimientosSinMatch} 
                   formatCurrency={formatCurrency} 
                   formatDate={formatDate}
+                  seleccionables
+                  seleccionados={seleccionadosSinMatch}
+                  setSeleccionados={setSeleccionadosSinMatch}
+                  sociosAsignados={sociosAsignadosSinMatch}
+                  setSociosAsignados={setSociosAsignadosSinMatch}
                   onVerDetalles={(item) => {
                     setMovimientoSeleccionado(item);
                     setModalDetalleAbierto(true);
                   }}
-                  onAsignarSocio={(item) => {
+                  onAsignarSocio={(item, index) => {
                     setMovimientoSeleccionado(item);
                     setModalDetalleAbierto(true);
                   }}
@@ -951,13 +1101,130 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
           movimientoId={movimientoSeleccionado.id}
           estado={movimientoSeleccionado.estado}
           pagoAsociado={movimientoSeleccionado.pagoAsociado}
-          onConfirmarPago={async () => {
-            // Recargar movimientos procesados
-            // TODO: Recargar desde la base de datos o actualizar estado local
+          modoAsignacion={movimientoSeleccionado?.match.nivel === 'F' && movimientoSeleccionado.estado !== 'ya_registrado'}
+          guardarKeywords={movimientoSeleccionado?.match.nivel === 'F' && movimientoSeleccionado.estado !== 'ya_registrado'}
+          onAsignarSocio={(socioId) => {
+            if (!movimientoSeleccionado) return;
+            
+            const indexSinMatch = movimientosSinMatch.findIndex(
+              m => m.movimiento === movimientoSeleccionado.movimiento
+            );
+            
+            if (indexSinMatch !== -1) {
+              // Actualizar el match con el socio seleccionado
+              const movimientosActualizados = movimientosProcesados.map(m => {
+                if (m.movimiento === movimientoSeleccionado.movimiento) {
+                  return {
+                    ...m,
+                    match: {
+                      ...m.match,
+                      socio_id: socioId,
+                      nivel: 'E',
+                      porcentaje_confianza: 100,
+                      razon: 'Asignación manual'
+                    }
+                  };
+                }
+                return m;
+              });
+              setMovimientosProcesados(movimientosActualizados);
+              
+              // Actualizar el socio asignado para este índice
+              setSociosAsignadosSinMatch(prev => {
+                const nuevo = new Map(prev);
+                nuevo.set(indexSinMatch, socioId);
+                return nuevo;
+              });
+              
+              // Si no está seleccionado, seleccionarlo automáticamente
+              if (!seleccionadosSinMatch.has(indexSinMatch)) {
+                setSeleccionadosSinMatch(prev => {
+                  const nuevo = new Set(prev);
+                  nuevo.add(indexSinMatch);
+                  return nuevo;
+                });
+              }
+            }
+            
             setModalDetalleAbierto(false);
             setMovimientoSeleccionado(null);
-            // Recargar página o actualizar estado
-            window.location.reload();
+          }}
+          onCambiarSocio={(socioId) => {
+            if (!movimientoSeleccionado) return;
+            
+            // Buscar en match exacto
+            const indexExacto = movimientosMatchExacto.findIndex(
+              m => m.movimiento === movimientoSeleccionado.movimiento
+            );
+            
+            if (indexExacto !== -1) {
+              // Actualizar el socio cambiado para este índice
+              setSociosCambiadosExactos(prev => {
+                const nuevo = new Map(prev);
+                nuevo.set(indexExacto, socioId);
+                return nuevo;
+              });
+              
+              // Si no está seleccionado, seleccionarlo automáticamente
+              if (!seleccionadosExactos.has(indexExacto)) {
+                setSeleccionadosExactos(prev => {
+                  const nuevo = new Set(prev);
+                  nuevo.add(indexExacto);
+                  return nuevo;
+                });
+              }
+            } else {
+              // Buscar en match probable
+              const indexProbable = movimientosMatchProbable.findIndex(
+                m => m.movimiento === movimientoSeleccionado.movimiento
+              );
+              
+              if (indexProbable !== -1) {
+                // Actualizar el match con el socio seleccionado
+                const movimientosActualizados = movimientosProcesados.map(m => {
+                  if (m.movimiento === movimientoSeleccionado.movimiento) {
+                    return {
+                      ...m,
+                      match: {
+                        ...m.match,
+                        socio_id: socioId,
+                        nivel: 'E' as const,
+                        porcentaje_confianza: 100,
+                        razon: 'Socio cambiado manualmente'
+                      }
+                    };
+                  }
+                  return m;
+                });
+                setMovimientosProcesados(movimientosActualizados);
+                
+                // Actualizar selección
+                if (!seleccionados.has(indexProbable)) {
+                  setSeleccionados(prev => {
+                    const nuevo = new Set(prev);
+                    nuevo.add(indexProbable);
+                    return nuevo;
+                  });
+                }
+              }
+            }
+            
+            setModalDetalleAbierto(false);
+            setMovimientoSeleccionado(null);
+          }}
+          onConfirmarPago={async () => {
+            // Para movimientos que no son sin match, remover de la lista
+            if (movimientoSeleccionado && movimientoSeleccionado.match.nivel !== 'F') {
+              setMovimientosProcesados((prev) =>
+                prev.filter((m) => m.movimiento !== movimientoSeleccionado.movimiento)
+              );
+              actualizarEstadisticas(
+                movimientosProcesados.filter((m) => m.movimiento !== movimientoSeleccionado.movimiento)
+              );
+            }
+            
+            setModalDetalleAbierto(false);
+            setMovimientoSeleccionado(null);
           }}
         />
       )}
@@ -973,9 +1240,11 @@ interface MovimientosTableProps {
   seleccionables?: boolean;
   seleccionados?: Set<number>;
   setSeleccionados?: (set: Set<number>) => void;
+  sociosAsignados?: Map<number, number>;
+  setSociosAsignados?: (map: Map<number, number>) => void;
   onVerDetalles?: (movimiento: MovimientoConMatch) => void;
   onCambiarSocio?: (movimiento: MovimientoConMatch) => void;
-  onAsignarSocio?: (movimiento: MovimientoConMatch) => void;
+  onAsignarSocio?: (movimiento: MovimientoConMatch, index: number) => void;
 }
 
 function MovimientosTable({
@@ -985,6 +1254,8 @@ function MovimientosTable({
   seleccionables = false,
   seleccionados,
   setSeleccionados,
+  sociosAsignados,
+  setSociosAsignados,
   onVerDetalles,
   onCambiarSocio,
   onAsignarSocio,
@@ -994,6 +1265,12 @@ function MovimientosTable({
     const nuevo = new Set(seleccionados);
     if (nuevo.has(index)) {
       nuevo.delete(index);
+      // Si se deselecciona, también remover el socio asignado
+      if (setSociosAsignados && sociosAsignados) {
+        const nuevosSocios = new Map(sociosAsignados);
+        nuevosSocios.delete(index);
+        setSociosAsignados(nuevosSocios);
+      }
     } else {
       nuevo.add(index);
     }
@@ -1034,8 +1311,18 @@ function MovimientosTable({
               )}
               <td className="py-3 px-4">{formatDate(item.movimiento.fecha_movimiento)}</td>
               <td className="py-3 px-4">
-                {item.match.nombre_completo || (
-                  <span className="text-gray-400">No identificado</span>
+                {item.match.nombre_completo ? (
+                  sociosAsignados?.has(index) ? (
+                    <span className="text-yellow-600 font-medium">Socio cambiado</span>
+                  ) : (
+                    <span>{item.match.nombre_completo}</span>
+                  )
+                ) : (
+                  seleccionables && sociosAsignados?.has(index) ? (
+                    <span className="text-green-600 font-medium">Socio asignado</span>
+                  ) : (
+                    <span className="text-gray-400">No identificado</span>
+                  )
                 )}
               </td>
               <td className="py-3 px-4 truncate max-w-md" title={item.movimiento.concepto_completo || ''}>
@@ -1065,19 +1352,37 @@ function MovimientosTable({
                   )}
                   {onCambiarSocio && item.match.socio_id && (
                     <button
-                      onClick={() => onCambiarSocio(item)}
-                      className="text-yellow-600 hover:text-yellow-800 text-sm font-medium"
+                      onClick={() => onCambiarSocio(item, index)}
+                      className={`text-sm font-medium ${
+                        sociosAsignados?.has(index)
+                          ? 'text-yellow-600 hover:text-yellow-800'
+                          : 'text-blue-600 hover:text-blue-800'
+                      }`}
                     >
-                      Cambiar socio
+                      {sociosAsignados?.has(index) ? 'Cambiar socio' : 'Cambiar socio'}
                     </button>
                   )}
-                  {onAsignarSocio && !item.match.socio_id && (
+                  {seleccionables && sociosAsignados?.has(index) && item.match.socio_id && (
+                    <span className="text-xs text-yellow-600 font-medium ml-2">
+                      ✓ Socio cambiado
+                    </span>
+                  )}
+                  {onAsignarSocio && (
                     <button
-                      onClick={() => onAsignarSocio(item)}
-                      className="text-green-600 hover:text-green-800 text-sm font-medium"
+                      onClick={() => onAsignarSocio(item, index)}
+                      className={`text-sm font-medium ${
+                        sociosAsignados?.has(index)
+                          ? 'text-green-600 hover:text-green-800'
+                          : 'text-blue-600 hover:text-blue-800'
+                      }`}
                     >
-                      Asignar socio
+                      {sociosAsignados?.has(index) ? 'Cambiar socio' : 'Asignar socio'}
                     </button>
+                  )}
+                  {seleccionables && sociosAsignados?.has(index) && (
+                    <span className="text-xs text-green-600 font-medium ml-2">
+                      ✓ Socio asignado
+                    </span>
                   )}
                 </div>
               </td>

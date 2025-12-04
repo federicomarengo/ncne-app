@@ -25,3 +25,14 @@ export function getNombreCompleto(socio: Socio | null | undefined): string {
   return `${socio.apellido}, ${socio.nombre}`.trim();
 }
 
+// Keyword relacionada con un socio para matching mejorado
+export interface SocioKeyword {
+  id: number;
+  socio_id: number;
+  tipo: 'cuit';
+  valor: string;
+  nombre_info?: string | null; // Nombre de la persona/empresa (info adicional, no se usa en matching)
+  created_at: string;
+  updated_at: string;
+}
+

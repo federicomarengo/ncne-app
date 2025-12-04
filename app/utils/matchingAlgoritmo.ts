@@ -51,6 +51,12 @@ export async function ejecutarMatching(
     return matchE;
   }
 
+  // Nivel E.5: Match por keywords relacionadas (75% confianza)
+  const matchE5 = await matchNivelE5(movimiento, supabaseClient);
+  if (matchE5.socio_id) {
+    return matchE5;
+  }
+
   // Nivel F: Sin match
   return {
     socio_id: null,
@@ -312,6 +318,48 @@ async function matchNivelE(movimiento: MovimientoProcesado, supabase: any): Prom
   } catch (error) {
     console.error('Error en match Nivel E:', error);
     return crearMatchResult(null, 'E', 0, 'Error al buscar por similitud');
+  }
+}
+
+/**
+ * Nivel E.5: Match por keywords relacionadas (75% confianza)
+ * Busca en la tabla socios_keywords SOLO por CUIT/CUIL del movimiento
+ * NUNCA busca por DNI
+ */
+async function matchNivelE5(movimiento: MovimientoProcesado, supabase: any): Promise<MatchResult> {
+  if (!movimiento.cuit_cuil) {
+    return crearMatchResult(null, 'E', 0, 'Sin CUIT/CUIL en el movimiento para buscar keywords');
+  }
+
+  try {
+    const cuitNormalizado = normalizarCUITCUIL(movimiento.cuit_cuil);
+    
+    if (cuitNormalizado.length < 11) {
+      return crearMatchResult(null, 'E', 0, 'CUIT/CUIL inválido para buscar keywords');
+    }
+
+    const { data: keywordCuit, error: errorCuit } = await supabase
+      .from('socios_keywords')
+      .select('socio_id, socios(id, apellido, nombre)')
+      .eq('tipo', 'cuit')
+      .eq('valor', cuitNormalizado)
+      .maybeSingle();
+
+    if (!errorCuit && keywordCuit && keywordCuit.socios) {
+      const socio = keywordCuit.socios;
+      return crearMatchResult(
+        socio.id,
+        'E',
+        75,
+        `Match por keyword relacionada: CUIT ${cuitNormalizado}`,
+        `${socio.apellido} ${socio.nombre}`
+      );
+    }
+
+    return crearMatchResult(null, 'E', 0, 'No se encontró match por keywords relacionadas');
+  } catch (error) {
+    console.error('Error en match Nivel E.5 (keywords):', error);
+    return crearMatchResult(null, 'E', 0, 'Error al buscar por keywords relacionadas');
   }
 }
 

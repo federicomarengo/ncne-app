@@ -27,6 +27,10 @@ interface DetalleMovimientoModalProps {
     };
   };
   onConfirmarPago?: () => void;
+  modoAsignacion?: boolean; // Si es true, solo asigna el socio sin confirmar
+  onAsignarSocio?: (socioId: number) => void; // Callback cuando se asigna socio en modo asignación
+  onCambiarSocio?: (socioId: number) => void; // Callback cuando se cambia el socio en match exacto/probable
+  guardarKeywords?: boolean; // Si es true, guarda keywords al confirmar
 }
 
 export default function DetalleMovimientoModal({
@@ -38,6 +42,10 @@ export default function DetalleMovimientoModal({
   estado,
   pagoAsociado,
   onConfirmarPago,
+  modoAsignacion = false,
+  onAsignarSocio,
+  onCambiarSocio,
+  guardarKeywords = false,
 }: DetalleMovimientoModalProps) {
   const [socioSeleccionado, setSocioSeleccionado] = useState<number | null>(match.socio_id || null);
   const [mostrarCambioSocio, setMostrarCambioSocio] = useState(false);
@@ -85,15 +93,33 @@ export default function DetalleMovimientoModal({
       return;
     }
 
+    // Si está en modo asignación, solo asigna el socio sin confirmar
+    if (modoAsignacion && onAsignarSocio) {
+      onAsignarSocio(socioSeleccionado);
+      onClose();
+      return;
+    }
+
+    // Si hay callback de cambiar socio (para match exacto/probable), usarlo
+    // NO guardar keywords cuando solo se cambia el socio
+    if (onCambiarSocio && (esProbableMatch || (match.nivel === 'A' || match.nivel === 'B'))) {
+      onCambiarSocio(socioSeleccionado);
+      onClose();
+      return;
+    }
+
     setConfirmando(true);
     setError(null);
 
     try {
       const supabase = createClient();
+      // Solo guardar keywords si es sin match (guardarKeywords = true)
       const resultado = await confirmarPagoDesdeMovimiento(
         movimiento,
         supabase,
-        socioSeleccionado
+        socioSeleccionado,
+        undefined, // cuponesPrecargados
+        guardarKeywords // guardarKeywords - solo true para sin match
       );
 
       if (resultado.success) {
@@ -331,7 +357,10 @@ export default function DetalleMovimientoModal({
               disabled={!socioSeleccionado || confirmando}
               className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {confirmando ? 'Confirmando...' : 'Confirmar Pago'}
+              {modoAsignacion 
+                ? (confirmando ? 'Asignando...' : 'Asignar Socio')
+                : (confirmando ? 'Confirmando...' : 'Confirmar Pago')
+              }
             </button>
           </div>
         )}
