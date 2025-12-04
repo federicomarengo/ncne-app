@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { MovimientoBancario, MovimientoProcesado, MatchResult, LineaExtracto, EstadisticasConciliacion } from '@/app/types/movimientos_bancarios';
+import { MovimientoBancario, MovimientoProcesado, MatchResult, LineaExtracto, EstadisticasConciliacion, NivelMatch } from '@/app/types/movimientos_bancarios';
 import { parsearExtracto, procesarMovimiento, filtrarTransferenciasRecibidas } from '@/app/utils/parseExtractoBancario';
 import { ejecutarMatching } from '@/app/utils/matchingAlgoritmo';
 import { confirmarPagoDesdeMovimiento, confirmarPagosEnLote } from '@/app/utils/confirmarPagoConciliacion';
@@ -895,7 +895,7 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
                     setMovimientoSeleccionado(item);
                     setModalDetalleAbierto(true);
                   }}
-                  onCambiarSocio={(item, index) => {
+                  onCambiarSocio={(item) => {
                     setMovimientoSeleccionado(item);
                     setModalDetalleAbierto(true);
                   }}
@@ -1119,7 +1119,7 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
                     match: {
                       ...m.match,
                       socio_id: socioId,
-                      nivel: 'E',
+                      nivel: 'E' as NivelMatch,
                       porcentaje_confianza: 100,
                       razon: 'Asignación manual'
                     }
@@ -1352,7 +1352,7 @@ function MovimientosTable({
                   )}
                   {onCambiarSocio && item.match.socio_id && (
                     <button
-                      onClick={() => onCambiarSocio(item, index)}
+                      onClick={() => onCambiarSocio(item)}
                       className={`text-sm font-medium ${
                         sociosAsignados?.has(index)
                           ? 'text-yellow-600 hover:text-yellow-800'
