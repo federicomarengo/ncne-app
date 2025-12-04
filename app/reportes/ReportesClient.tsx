@@ -31,6 +31,20 @@ interface IngresoMensual {
     total: number;
 }
 
+interface SocioSinEmbarcacion {
+    id: number;
+    numero_socio: number;
+    apellido: string;
+    nombre: string;
+}
+
+interface EmbarcacionSinDueño {
+    id: number;
+    nombre: string;
+    matricula: string | null;
+    tipo: string | null;
+}
+
 export default function ReportesClient() {
     const router = useRouter();
     const [loading, setLoading] = useState(true);
@@ -47,6 +61,8 @@ export default function ReportesClient() {
         diferencia: number;
         porcentaje: number;
     } | null>(null);
+    const [sociosSinEmbarcaciones, setSociosSinEmbarcaciones] = useState<SocioSinEmbarcacion[]>([]);
+    const [embarcacionesSinDueño, setEmbarcacionesSinDueño] = useState<EmbarcacionSinDueño[]>([]);
 
     useEffect(() => {
         cargarReportes();
@@ -60,6 +76,8 @@ export default function ReportesClient() {
                 cargarCuponesVencidos(),
                 cargarIngresosMensuales(),
                 cargarComparacionAnio(),
+                cargarSociosSinEmbarcaciones(),
+                cargarEmbarcacionesSinDueño(),
             ]);
         } catch (err) {
             console.error('Error al cargar reportes:', err);
@@ -298,6 +316,107 @@ export default function ReportesClient() {
         }
     };
 
+    const cargarSociosSinEmbarcaciones = async () => {
+        try {
+            const supabase = createClient();
+            
+            // Obtener todos los socios activos
+            const { data: socios, error: errorSocios } = await supabase
+                .from('socios')
+                .select('id, numero_socio, apellido, nombre')
+                .eq('estado', 'activo');
+
+            if (errorSocios) {
+                console.error('Error al cargar socios:', errorSocios);
+                return;
+            }
+
+            // Obtener todas las embarcaciones con su socio_id
+            const { data: embarcaciones, error: errorEmbarcaciones } = await supabase
+                .from('embarcaciones')
+                .select('socio_id');
+
+            if (errorEmbarcaciones) {
+                console.error('Error al cargar embarcaciones:', errorEmbarcaciones);
+                return;
+            }
+
+            // Crear un Set con los IDs de socios que tienen embarcaciones
+            const sociosConEmbarcaciones = new Set<number>();
+            embarcaciones?.forEach((emb: any) => {
+                if (emb.socio_id) {
+                    sociosConEmbarcaciones.add(emb.socio_id);
+                }
+            });
+
+            // Filtrar socios que no tienen embarcaciones
+            const sociosSinEmbarc: SocioSinEmbarcacion[] = (socios || [])
+                .filter((socio: any) => !sociosConEmbarcaciones.has(socio.id))
+                .map((socio: any) => ({
+                    id: socio.id,
+                    numero_socio: socio.numero_socio,
+                    apellido: socio.apellido,
+                    nombre: socio.nombre,
+                }))
+                .sort((a, b) => {
+                    // Ordenar por apellido (ascendente)
+                    return a.apellido.localeCompare(b.apellido);
+                });
+
+            setSociosSinEmbarcaciones(sociosSinEmbarc);
+        } catch (err) {
+            console.error('Error al cargar socios sin embarcaciones:', err);
+        }
+    };
+
+    const cargarEmbarcacionesSinDueño = async () => {
+        try {
+            const supabase = createClient();
+            
+            // Obtener todas las embarcaciones con su relación a socios
+            const { data: embarcaciones, error } = await supabase
+                .from('embarcaciones')
+                .select(`
+                    id,
+                    nombre,
+                    matricula,
+                    tipo,
+                    socio_id,
+                    socio:socios (
+                        id
+                    )
+                `);
+
+            if (error) {
+                console.error('Error al cargar embarcaciones:', error);
+                return;
+            }
+
+            // Filtrar embarcaciones sin dueño (socio_id es null o el socio no existe)
+            const embarcacionesSinDueño: EmbarcacionSinDueño[] = (embarcaciones || [])
+                .filter((emb: any) => {
+                    // Sin socio_id o el socio no existe (la relación es null o array vacío)
+                    return !emb.socio_id || 
+                           !emb.socio || 
+                           (Array.isArray(emb.socio) && emb.socio.length === 0);
+                })
+                .map((emb: any) => ({
+                    id: emb.id,
+                    nombre: emb.nombre || 'Sin nombre',
+                    matricula: emb.matricula,
+                    tipo: emb.tipo,
+                }))
+                .sort((a, b) => {
+                    // Ordenar por nombre (ascendente)
+                    return a.nombre.localeCompare(b.nombre);
+                });
+
+            setEmbarcacionesSinDueño(embarcacionesSinDueño);
+        } catch (err) {
+            console.error('Error al cargar embarcaciones sin dueño:', err);
+        }
+    };
+
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('es-AR', {
             style: 'currency',
@@ -525,6 +644,79 @@ export default function ReportesClient() {
                             </div>
                         ) : (
                             <p className="text-sm text-gray-500 text-center py-4">No hay datos para comparar</p>
+                        )}
+                    </div>
+
+                    {/* Widget: Socios sin Embarcaciones */}
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="p-2 bg-yellow-100 rounded-lg">
+                                <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                            </div>
+                            <h2 className="text-xl font-semibold text-gray-900">Socios sin Embarcaciones</h2>
+                        </div>
+                        
+                        {sociosSinEmbarcaciones.length === 0 ? (
+                            <p className="text-sm text-gray-500 text-center py-4">Todos los socios tienen embarcaciones registradas</p>
+                        ) : (
+                            <div className="space-y-2 max-h-96 overflow-y-auto">
+                                {sociosSinEmbarcaciones.map((socio) => (
+                                    <div
+                                        key={socio.id}
+                                        onClick={() => router.push(`/socios/${socio.id}`)}
+                                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 cursor-pointer transition-colors border border-gray-200"
+                                    >
+                                        <div className="flex-1">
+                                            <p className="font-medium text-gray-900">
+                                                {socio.apellido}, {socio.nombre}
+                                            </p>
+                                            <p className="text-xs text-gray-500">Socio #{socio.numero_socio}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Widget: Embarcaciones sin Dueño */}
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="p-2 bg-cyan-100 rounded-lg">
+                                <svg className="w-6 h-6 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                                </svg>
+                            </div>
+                            <h2 className="text-xl font-semibold text-gray-900">Embarcaciones sin Dueño</h2>
+                        </div>
+                        
+                        {embarcacionesSinDueño.length === 0 ? (
+                            <p className="text-sm text-gray-500 text-center py-4">Todas las embarcaciones tienen dueño asignado</p>
+                        ) : (
+                            <div className="space-y-2 max-h-96 overflow-y-auto">
+                                {embarcacionesSinDueño.map((embarcacion) => (
+                                    <div
+                                        key={embarcacion.id}
+                                        onClick={() => router.push(`/embarcaciones/${embarcacion.id}`)}
+                                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 cursor-pointer transition-colors border border-gray-200"
+                                    >
+                                        <div className="flex-1">
+                                            <p className="font-medium text-gray-900">
+                                                {embarcacion.nombre}
+                                            </p>
+                                            <div className="flex gap-2 mt-1">
+                                                {embarcacion.matricula && (
+                                                    <p className="text-xs text-gray-500">Matrícula: {embarcacion.matricula}</p>
+                                                )}
+                                                {embarcacion.tipo && (
+                                                    <p className="text-xs text-gray-500">Tipo: {embarcacion.tipo}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         )}
                     </div>
                 </div>
