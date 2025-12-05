@@ -7,6 +7,8 @@ import { Cupon } from '@/app/types/cupones';
 import { MetodoPago, METODOS_PAGO } from '@/app/types/pagos';
 import { createClient } from '@/utils/supabase/client';
 import { verificarDuplicadoPago } from '@/app/utils/verificarDuplicadoPago';
+import { aplicarPagoACupones } from '@/app/utils/aplicarPagoACupones';
+import { calcularSaldoPendienteCupon } from '@/app/utils/calcularSaldoPendienteCupon';
 
 export default function RegistrarPagoClient() {
     const router = useRouter();
@@ -114,10 +116,7 @@ export default function RegistrarPagoClient() {
             return;
         }
 
-        if (!cuponId) {
-            setError('Debe seleccionar un cupón');
-            return;
-        }
+        // El cupón es opcional - si no se selecciona, se aplica automáticamente a todos los pendientes
 
         if (!monto || parseFloat(monto) <= 0) {
             setError('El monto debe ser mayor a 0');
@@ -203,28 +202,60 @@ export default function RegistrarPagoClient() {
                 throw new Error(errorPago.message || 'Error al crear el pago');
             }
 
-            const { error: errorPagoCupon } = await supabase
-                .from('pagos_cupones')
-                .insert({
-                    pago_id: pago.id,
-                    cupon_id: parseInt(cuponId),
-                    monto_aplicado: montoNum,
-                });
+            // Aplicar pago a cupones usando la nueva función
+            if (cuponId) {
+                // Si hay cupón seleccionado, aplicar primero a ese
+                const saldoPendiente = await calcularSaldoPendienteCupon(parseInt(cuponId), supabase);
+                const montoAAplicarACuponSeleccionado = Math.min(montoNum, saldoPendiente);
+                
+                if (montoAAplicarACuponSeleccionado > 0) {
+                    const { error: errorPagoCupon } = await supabase
+                        .from('pagos_cupones')
+                        .insert({
+                            pago_id: pago.id,
+                            cupon_id: parseInt(cuponId),
+                            monto_aplicado: montoAAplicarACuponSeleccionado,
+                        });
 
-            if (errorPagoCupon) {
-                console.error('Error al crear relación pago-cupón:', errorPagoCupon);
-            }
+                    if (errorPagoCupon) {
+                        console.error('Error al crear relación pago-cupón:', errorPagoCupon);
+                    }
 
-            const { error: errorCupon } = await supabase
-                .from('cupones')
-                .update({
-                    estado: 'pagado',
-                    fecha_pago: fechaPago,
-                })
-                .eq('id', parseInt(cuponId));
+                    // Si el cupón queda completamente pagado, marcarlo
+                    if (montoAAplicarACuponSeleccionado >= saldoPendiente) {
+                        const { error: errorCupon } = await supabase
+                            .from('cupones')
+                            .update({
+                                estado: 'pagado',
+                                fecha_pago: fechaPago,
+                            })
+                            .eq('id', parseInt(cuponId));
 
-            if (errorCupon) {
-                console.error('Error al actualizar cupón:', errorCupon);
+                        if (errorCupon) {
+                            console.error('Error al actualizar cupón:', errorCupon);
+                        }
+                    }
+                }
+
+                // Si queda excedente, aplicar a otros cupones
+                const excedente = montoNum - montoAAplicarACuponSeleccionado;
+                if (excedente > 0) {
+                    await aplicarPagoACupones(pago.id, parseInt(socioId), excedente, fechaPago, supabase);
+                }
+            } else {
+                // Si no hay cupón seleccionado, aplicar automáticamente a todos los pendientes
+                const resultado = await aplicarPagoACupones(
+                    pago.id,
+                    parseInt(socioId),
+                    montoNum,
+                    fechaPago,
+                    supabase
+                );
+
+                if (resultado.excedente > 0) {
+                    // Mostrar mensaje informativo sobre el excedente
+                    console.log(`Pago registrado. Excedente de $${resultado.excedente.toLocaleString('es-AR')} queda como saldo a favor`);
+                }
             }
 
             router.push('/pagos');
@@ -298,13 +329,12 @@ export default function RegistrarPagoClient() {
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Cupón a Pagar <span className="text-red-500">*</span>
+                                Cupón a Pagar (Opcional)
                             </label>
                             <select
                                 value={cuponId}
                                 onChange={(e) => setCuponId(e.target.value)}
                                 disabled={!socioId || loadingCupones}
-                                required
                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
                             >
                                 <option value="">
@@ -313,8 +343,8 @@ export default function RegistrarPagoClient() {
                                         : loadingCupones
                                         ? 'Cargando cupones...'
                                         : cupones.length === 0
-                                        ? 'No hay cupones pendientes'
-                                        : 'Seleccione un cupón'}
+                                        ? 'No hay cupones pendientes (se aplicará automáticamente)'
+                                        : 'Seleccione un cupón o deje vacío para aplicar automáticamente'}
                                 </option>
                                 {cupones.map((cupon) => (
                                     <option key={cupon.id} value={cupon.id}>
@@ -325,7 +355,12 @@ export default function RegistrarPagoClient() {
                             </select>
                             {cuponId && montoMaximo > 0 && (
                                 <p className="mt-1 text-xs text-gray-500">
-                                    Monto máximo: {formatCurrency(montoMaximo)}
+                                    Monto máximo del cupón: {formatCurrency(montoMaximo)}. Si el pago es mayor, el excedente se aplicará a otros cupones pendientes.
+                                </p>
+                            )}
+                            {!cuponId && cupones.length > 0 && (
+                                <p className="mt-1 text-xs text-blue-600">
+                                    Si no selecciona un cupón, el pago se aplicará automáticamente a todos los cupones pendientes en orden de vencimiento.
                                 </p>
                             )}
                         </div>

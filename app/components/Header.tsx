@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSidebar } from '../contexts/SidebarContext';
 
@@ -13,6 +13,12 @@ const pageTitles: Record<string, string> = {
   '/reportes': 'Reportes',
 };
 
+interface User {
+  id: string;
+  email: string;
+  metadata?: any;
+}
+
 export default function Header() {
   const pathname = usePathname();
   const router = useRouter();
@@ -20,6 +26,24 @@ export default function Header() {
   const { sidebarWidth } = useSidebar();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    // Cargar información del usuario
+    const loadUser = async () => {
+      try {
+        const response = await fetch('/api/auth/user');
+        if (response.ok) {
+          const data = await response.json();
+          setUser(data.user);
+        }
+      } catch (error) {
+        console.error('Error al cargar usuario:', error);
+      }
+    };
+
+    loadUser();
+  }, []);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -29,7 +53,10 @@ export default function Header() {
       });
       
       if (response.ok) {
-        router.push('/');
+        // Limpiar estado del usuario
+        setUser(null);
+        // Redirigir a login
+        router.push('/login');
         router.refresh();
       } else {
         console.error('Error al cerrar sesión');
@@ -65,15 +92,19 @@ export default function Header() {
           {/* User menu */}
           <div className="relative flex items-center space-x-3">
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-medium text-gray-900">Administrador</p>
-              <p className="text-xs text-gray-500">admin@clubnautico.com</p>
+              <p className="text-sm font-medium text-gray-900">
+                {user?.metadata?.nombre || user?.metadata?.name || 'Administrador'}
+              </p>
+              <p className="text-xs text-gray-500">{user?.email || 'admin@clubnautico.com'}</p>
             </div>
             <div className="relative">
               <button
                 onClick={() => setShowUserMenu(!showUserMenu)}
                 className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               >
-                <span className="text-white font-medium text-sm">A</span>
+                <span className="text-white font-medium text-sm">
+                  {user?.email?.charAt(0).toUpperCase() || 'A'}
+                </span>
               </button>
               
               {showUserMenu && (
@@ -84,8 +115,10 @@ export default function Header() {
                   />
                   <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
                     <div className="px-4 py-2 border-b border-gray-200 sm:hidden">
-                      <p className="text-sm font-medium text-gray-900">Administrador</p>
-                      <p className="text-xs text-gray-500">admin@clubnautico.com</p>
+                      <p className="text-sm font-medium text-gray-900">
+                        {user?.metadata?.nombre || user?.metadata?.name || 'Administrador'}
+                      </p>
+                      <p className="text-xs text-gray-500">{user?.email || 'admin@clubnautico.com'}</p>
                     </div>
                     <button
                       onClick={handleLogout}
@@ -139,8 +172,10 @@ export default function Header() {
                 />
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
                   <div className="px-4 py-2 border-b border-gray-200">
-                    <p className="text-sm font-medium text-gray-900">Administrador</p>
-                    <p className="text-xs text-gray-500">admin@clubnautico.com</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {user?.metadata?.nombre || user?.metadata?.name || 'Administrador'}
+                    </p>
+                    <p className="text-xs text-gray-500">{user?.email || 'admin@clubnautico.com'}</p>
                   </div>
                   <button
                     onClick={handleLogout}

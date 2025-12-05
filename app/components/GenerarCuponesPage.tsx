@@ -8,6 +8,7 @@ import { filterVistaPreviaCupones } from '@/app/utils/filterVistaPreviaCupones';
 import { createClient } from '@/utils/supabase/client';
 import VistaPreviaCuponesTable from './VistaPreviaCuponesTable';
 import ProgressBar from '@/app/components/ProgressBar';
+import { aplicarSaldoAFavorACupon } from '@/app/utils/aplicarSaldoAFavorACupon';
 
 export default function GenerarCuponesPage() {
   const router = useRouter();
@@ -264,6 +265,33 @@ export default function GenerarCuponesPage() {
         if (errorCupon) {
           console.error(`Error al crear cupón para socio ${item.socio.numero_socio}:`, errorCupon);
           continue;
+        }
+
+        // Aplicar saldo a favor automáticamente al cupón recién generado
+        try {
+          const resultadoSaldo = await aplicarSaldoAFavorACupon(
+            cupon.id,
+            item.socio.id,
+            supabase
+          );
+          
+          if (resultadoSaldo.montoAplicado > 0) {
+            console.log(`Saldo a favor aplicado: $${resultadoSaldo.montoAplicado.toLocaleString('es-AR')} al cupón ${numeroCupon}`);
+            
+            // Si el cupón quedó completamente pagado, actualizar el estado
+            if (resultadoSaldo.cuponQuedoPagado) {
+              await supabase
+                .from('cupones')
+                .update({
+                  estado: 'pagado',
+                  fecha_pago: fechaEmision,
+                })
+                .eq('id', cupon.id);
+            }
+          }
+        } catch (errorSaldo: any) {
+          // No fallar la generación si hay error con saldo a favor, solo loggear
+          console.error(`Error al aplicar saldo a favor al cupón ${numeroCupon}:`, errorSaldo);
         }
 
         // Crear items del cupón

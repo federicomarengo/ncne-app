@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
+import { cookies } from 'next/headers';
 
 export async function POST(request: NextRequest) {
   try {
@@ -7,6 +8,11 @@ export async function POST(request: NextRequest) {
     
     // Cerrar sesión en Supabase
     await supabase.auth.signOut();
+    
+    // Limpiar cookies de sesión
+    const cookieStore = await cookies();
+    cookieStore.delete('sb-access-token');
+    cookieStore.delete('sb-refresh-token');
     
     return NextResponse.json({ success: true, message: 'Sesión cerrada correctamente' });
   } catch (error: any) {

@@ -170,7 +170,7 @@ export default function VisitasTable({ visitas, onRefresh }: VisitasTableProps) 
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                   CUPÓN
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
                   ACCIONES
                 </th>
               </tr>
@@ -225,8 +225,8 @@ export default function VisitasTable({ visitas, onRefresh }: VisitasTableProps) 
                         ? formatDate(visita.fecha_generacion_cupon)
                         : '-'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex items-center gap-2">
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex items-center justify-end gap-2">
                         {visita.estado === 'pendiente' && (
                           <>
                             <button

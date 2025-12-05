@@ -124,8 +124,8 @@ export default function Sidebar() {
       });
       
       if (response.ok) {
-        // Redirigir a home o página de login
-        router.push('/');
+        // Redirigir a login
+        router.push('/login');
         router.refresh();
       } else {
         console.error('Error al cerrar sesión');

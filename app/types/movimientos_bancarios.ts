@@ -6,7 +6,7 @@
  */
 
 export type EstadoMovimiento = 'nuevo' | 'procesado' | 'descartado' | 'ya_registrado';
-export type NivelMatch = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+export type NivelMatch = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'M';
 
 export interface MovimientoBancario {
   id: number;

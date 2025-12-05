@@ -8,12 +8,15 @@ import MainContent from './components/MainContent';
 export default function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   
-  // No mostrar Sidebar ni MainContent en /portal
+  // No mostrar Sidebar ni MainContent en /portal o /login
   // El portal tiene su propio layout
-  if (pathname?.startsWith('/portal')) {
+  // El proxy ya maneja la redirección a /login si no está autenticado
+  if (pathname?.startsWith('/portal') || pathname === '/login') {
     return <>{children}</>;
   }
 
+  // Si llegamos aquí, el proxy ya verificó la autenticación
+  // No necesitamos verificar de nuevo en el cliente
   return (
     <SidebarProvider>
       <Sidebar />

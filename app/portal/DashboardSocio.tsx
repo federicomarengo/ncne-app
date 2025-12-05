@@ -95,30 +95,17 @@ export default function DashboardSocio({ socio, onLogout }: DashboardSocioProps)
   };
 
   // Calcular resumen de cuenta
-  // Obtener cupones pendientes para mostrar información (cantidad y próximo vencimiento)
+  // Obtener cupones pendientes para mostrar información
   const cuponesPendientes = cupones.filter(c => c.estado === 'pendiente' || c.estado === 'vencido');
-  const deudaTotal = cuponesPendientes.reduce((sum, c) => sum + parseFloat(c.monto_total.toString()), 0);
-  
-  // Calcular saldo (total pagado - todos los cupones)
-  // Incluir TODOS los cupones (pendientes + pagados) para el cálculo del saldo
-  const totalCupones = cupones.reduce((sum, c) => sum + parseFloat(c.monto_total.toString()), 0);
-  const totalPagado = pagos.reduce((sum, p) => sum + parseFloat(p.monto.toString()), 0);
-  const saldo = totalPagado - totalCupones;
-
-  // Próximo vencimiento
   const cuponesPendientesOrdenados = [...cuponesPendientes].sort((a, b) => 
     new Date(a.fecha_vencimiento).getTime() - new Date(b.fecha_vencimiento).getTime()
   );
-  const proximoVencimiento = cuponesPendientesOrdenados.length > 0 ? cuponesPendientesOrdenados[0] : null;
   
-  let diasRestantes = null;
-  if (proximoVencimiento) {
-    const fechaVencimiento = new Date(proximoVencimiento.fecha_vencimiento);
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
-    fechaVencimiento.setHours(0, 0, 0, 0);
-    diasRestantes = Math.ceil((fechaVencimiento.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
-  }
+  // Calcular saldo (total pagado - todos los cupones)
+  // Negativo = debe, Positivo = a favor
+  const totalCupones = cupones.reduce((sum, c) => sum + parseFloat(c.monto_total.toString()), 0);
+  const totalPagado = pagos.reduce((sum, p) => sum + parseFloat(p.monto.toString()), 0);
+  const saldo = totalPagado - totalCupones;
 
   // Último pago
   const ultimoPago = pagos.length > 0 ? pagos[0] : null;
@@ -325,107 +312,41 @@ export default function DashboardSocio({ socio, onLogout }: DashboardSocioProps)
 
         {/* Resumen de Cuenta */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
-          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">
+          <h3 className="text-base font-medium text-gray-700 mb-3">
             Resumen de Cuenta
-          </h2>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-            {/* Saldo */}
-            <div className={`rounded-xl p-4 sm:p-5 border-2 ${
-              saldo >= 0 
-                ? 'bg-green-50 border-green-300' 
-                : 'bg-red-50 border-red-300'
-            }`}>
-              <p className={`text-xs sm:text-sm font-medium mb-2 ${
-                saldo >= 0 ? 'text-green-700' : 'text-red-700'
-              }`}>
-                Saldo
-              </p>
-              <p className={`text-2xl sm:text-3xl font-bold ${
-                saldo >= 0 ? 'text-green-900' : 'text-red-900'
-              }`}>
-                {saldo >= 0 ? '+' : ''}{formatCurrency(Math.abs(saldo))}
-              </p>
-              <p className={`text-xs sm:text-sm mt-1 ${
-                saldo >= 0 ? 'text-green-600' : 'text-red-600'
-              }`}>
-                {saldo >= 0 ? 'A favor' : 'Debe'}
-              </p>
-            </div>
-
-            {/* Cupones Pendientes */}
-            <div className="bg-yellow-50 border-2 border-yellow-300 rounded-xl p-4 sm:p-5">
-              <p className="text-xs sm:text-sm font-medium text-yellow-700 mb-2">
-                Cupones Pendientes
-              </p>
-              <p className="text-2xl sm:text-3xl font-bold text-yellow-900">
-                {cuponesPendientes.length}
-              </p>
-              <p className="text-xs sm:text-sm text-yellow-600 mt-1">
-                {formatCurrency(deudaTotal)} total
-              </p>
-            </div>
-
-            {/* Próximo Vencimiento */}
-            <div className={`rounded-xl p-4 sm:p-5 border-2 ${
-              proximoVencimiento && diasRestantes !== null && diasRestantes <= 7
-                ? 'bg-red-50 border-red-300'
-                : proximoVencimiento && diasRestantes !== null && diasRestantes <= 15
-                ? 'bg-orange-50 border-orange-300'
-                : 'bg-blue-50 border-blue-300'
-            }`}>
-              <p className={`text-xs sm:text-sm font-medium mb-2 ${
-                proximoVencimiento && diasRestantes !== null && diasRestantes <= 7
-                  ? 'text-red-700'
-                  : proximoVencimiento && diasRestantes !== null && diasRestantes <= 15
-                  ? 'text-orange-700'
-                  : 'text-blue-700'
-              }`}>
-                Próximo Vencimiento
-              </p>
-              {proximoVencimiento ? (
-                <>
-                  <p className={`text-xl sm:text-2xl font-bold mb-1 ${
-                    diasRestantes !== null && diasRestantes <= 7
-                      ? 'text-red-900'
-                      : diasRestantes !== null && diasRestantes <= 15
-                      ? 'text-orange-900'
-                      : 'text-blue-900'
+          </h3>
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Saldo</p>
+                <p className={`text-xl font-semibold ${
+                  saldo > 0 
+                    ? 'text-green-600' 
+                    : saldo < 0 
+                    ? 'text-red-600' 
+                    : 'text-gray-900'
+                }`}>
+                  {saldo < 0 ? '-' : saldo > 0 ? '+' : ''}${Math.abs(saldo).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  <span className={`text-sm font-normal ml-2 ${
+                    saldo > 0 
+                      ? 'text-green-600' 
+                      : saldo < 0 
+                      ? 'text-red-600' 
+                      : 'text-gray-600'
                   }`}>
-                    {formatCurrency(proximoVencimiento.monto_total)}
-                  </p>
-                  <p className={`text-xs sm:text-sm ${
-                    diasRestantes !== null && diasRestantes <= 7
-                      ? 'text-red-600'
-                      : diasRestantes !== null && diasRestantes <= 15
-                      ? 'text-orange-600'
-                      : 'text-blue-600'
-                  }`}>
-                    {formatDate(proximoVencimiento.fecha_vencimiento)}
-                  </p>
-                  {diasRestantes !== null && (
-                    <p className={`text-xs font-semibold mt-1 ${
-                      diasRestantes < 0
-                        ? 'text-red-700'
-                        : diasRestantes === 0
-                        ? 'text-red-700'
-                        : diasRestantes <= 7
-                        ? 'text-red-700'
-                        : diasRestantes <= 15
-                        ? 'text-orange-700'
-                        : 'text-blue-700'
-                    }`}>
-                      {diasRestantes < 0
-                        ? `Vencido hace ${Math.abs(diasRestantes)} ${Math.abs(diasRestantes) === 1 ? 'día' : 'días'}`
-                        : diasRestantes === 0
-                        ? 'Vence hoy'
-                        : `${diasRestantes} ${diasRestantes === 1 ? 'día' : 'días'} restantes`}
-                    </p>
-                  )}
-                </>
-              ) : (
-                <p className="text-gray-500 text-sm">No hay cupones pendientes</p>
-              )}
+                    {saldo < 0 ? '(Debe)' : saldo > 0 ? '(A favor)' : '(Al día)'}
+                  </span>
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Cupones Pendientes</p>
+                <p className="text-xl font-semibold text-gray-900">
+                  {cuponesPendientes.length}
+                  <span className="text-sm font-normal text-gray-600 ml-2">
+                    {cuponesPendientes.length === 1 ? 'cupón' : 'cupones'}
+                  </span>
+                </p>
+              </div>
             </div>
           </div>
 

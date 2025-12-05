@@ -9,6 +9,7 @@ import { verificarDuplicadoPago } from './verificarDuplicadoPago';
 import { generarHashMovimiento } from './generarHashMovimiento';
 import { logError } from './logErrores';
 import { normalizarCUITCUIL, normalizarDNI } from './normalizarTexto';
+import { aplicarPagoACupones } from './aplicarPagoACupones';
 
 interface ConfirmarPagoResult {
   success: boolean;
@@ -127,37 +128,8 @@ export async function confirmarPagoDesdeMovimiento(
       movimientoGuardado = nuevoMovimiento;
     }
 
-    // 2. Buscar cupones pendientes del socio con monto similar (±$1)
-    const montoMinimo = movimiento.monto - 1;
-    const montoMaximo = movimiento.monto + 1;
-
-    let cuponesPendientes: any[] = [];
-
-    // Usar cupones pre-cargados si están disponibles (optimización)
-    if (cuponesPrecargados && socioId) {
-      const cuponesDelSocio = cuponesPrecargados.get(socioId) || [];
-      // Filtrar por rango de monto
-      cuponesPendientes = cuponesDelSocio.filter((c: any) => {
-        const montoTotal = parseFloat(c.monto_total.toString());
-        return montoTotal >= montoMinimo && montoTotal <= montoMaximo;
-      });
-    } else {
-      // Fallback: cargar cupones individualmente (cuando no hay pre-carga)
-      const { data, error: errorCupones } = await supabase
-        .from('cupones')
-        .select('id, monto_total, estado')
-        .eq('socio_id', socioId)
-        .in('estado', ['pendiente', 'vencido'])
-        .gte('monto_total', montoMinimo)
-        .lte('monto_total', montoMaximo)
-        .order('fecha_vencimiento', { ascending: true });
-
-      if (errorCupones) {
-        console.error('Error al buscar cupones:', errorCupones);
-      } else {
-        cuponesPendientes = data || [];
-      }
-    }
+    // 2. Ya no buscamos cupones aquí - la función aplicarPagoACupones lo hace
+    // Se eliminó la búsqueda por monto similar (±$1) para buscar TODOS los cupones pendientes
 
     // 3. Verificar duplicados simplificado (ya se verificó por hash en paso 0.1)
     // Si llegamos aquí, el hash no está duplicado
@@ -199,62 +171,22 @@ export async function confirmarPagoDesdeMovimiento(
       throw new Error(`Error al crear pago: ${errorPago.message}`);
     }
 
-    // 5. Asociar pago a cupones (OPTIMIZADO: batch operations)
-    const cuponesAsociados: number[] = [];
-    let montoRestante = movimiento.monto;
-    const relacionesPagoCupon: any[] = [];
-    const cuponesAAcutualizar: any[] = [];
+    // 5. Aplicar pago a cupones usando la nueva función
+    // Esta función busca TODOS los cupones pendientes, calcula saldo pendiente real,
+    // aplica en orden cronológico y maneja excedente como saldo a favor
+    const resultadoAplicacion = await aplicarPagoACupones(
+      pago.id,
+      socioId,
+      movimiento.monto,
+      movimiento.fecha_movimiento,
+      supabase
+    );
 
-    if (cuponesPendientes && cuponesPendientes.length > 0) {
-      for (const cupon of cuponesPendientes) {
-        if (montoRestante <= 0) break;
+    const cuponesAsociados = resultadoAplicacion.cuponesAplicados;
 
-        const montoCupon = parseFloat(cupon.monto_total.toString());
-        const montoAAplicar = Math.min(montoCupon, montoRestante);
-
-        // Preparar relación pago-cupón para batch insert
-        relacionesPagoCupon.push({
-          pago_id: pago.id,
-          cupon_id: cupon.id,
-          monto_aplicado: montoAAplicar,
-        });
-
-        cuponesAsociados.push(cupon.id);
-        montoRestante -= montoAAplicar;
-
-        // Preparar cupón para batch update si está completamente pagado
-        if (montoAAplicar >= montoCupon) {
-          cuponesAAcutualizar.push({
-            id: cupon.id,
-            estado: 'pagado',
-            fecha_pago: movimiento.fecha_movimiento,
-          });
-        }
-      }
-
-      // Batch insert: Insertar todas las relaciones pago-cupón de una vez
-      if (relacionesPagoCupon.length > 0) {
-        const { error: errorPagoCupon } = await supabase
-          .from('pagos_cupones')
-          .insert(relacionesPagoCupon);
-
-        if (errorPagoCupon) {
-          console.error('Error al asociar cupones en batch:', errorPagoCupon);
-        }
-      }
-
-      // Batch update: Actualizar todos los cupones de una vez
-      if (cuponesAAcutualizar.length > 0) {
-        for (const cuponUpdate of cuponesAAcutualizar) {
-          await supabase
-            .from('cupones')
-            .update({
-              estado: cuponUpdate.estado,
-              fecha_pago: cuponUpdate.fecha_pago,
-            })
-            .eq('id', cuponUpdate.id);
-        }
-      }
+    // Log del resultado para debugging
+    if (resultadoAplicacion.excedente > 0) {
+      console.log(`Pago aplicado: ${cuponesAsociados.length} cupones, excedente: $${resultadoAplicacion.excedente} guardado como saldo a favor`);
     }
 
     // 6. Actualizar movimiento con el pago_id
@@ -355,31 +287,13 @@ export async function confirmarPagosEnLote(
   // PRE-CARGA: Obtener todos los IDs de socios únicos
   const sociosIds = [...new Set(
     movimientos
-      .map(m => m.match.socio_id)
-      .filter(id => id !== null)
+      .map((m: any) => m.match.socio_id)
+      .filter((id: any) => id !== null)
   )] as number[];
 
-  // PRE-CARGA: Cargar todos los cupones pendientes de todos los socios de una vez
+  // PRE-CARGA: Ya no es necesaria porque aplicarPagoACupones busca los cupones directamente
+  // Se mantiene el parámetro cuponesPrecargados por compatibilidad pero no se usa
   const cuponesPorSocio = new Map<number, any[]>();
-  if (sociosIds.length > 0) {
-    const { data: todosCupones } = await supabase
-      .from('cupones')
-      .select('id, socio_id, monto_total, estado, fecha_vencimiento')
-      .in('socio_id', sociosIds)
-      .in('estado', ['pendiente', 'vencido'])
-      .order('socio_id')
-      .order('fecha_vencimiento', { ascending: true });
-
-    if (todosCupones) {
-      // Agrupar cupones por socio_id para acceso rápido
-      todosCupones.forEach((cupon: any) => {
-        if (!cuponesPorSocio.has(cupon.socio_id)) {
-          cuponesPorSocio.set(cupon.socio_id, []);
-        }
-        cuponesPorSocio.get(cupon.socio_id)!.push(cupon);
-      });
-    }
-  }
 
   // Procesar cada movimiento
   const total = movimientos.length;

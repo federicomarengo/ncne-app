@@ -664,39 +664,48 @@ export default function GenerarCuponesModal({
   const obtenerDescripcionAmarra = (embarcacion: Embarcacion, config: Configuracion): string => {
     const tipo = embarcacion.tipo?.toLowerCase();
     const eslora = parseFloat(embarcacion.eslora_pies?.toString() || '0');
+    const nombreEmbarcacion = embarcacion.nombre || '';
 
     if (tipo === 'crucero' || tipo === 'velero') {
-      return `Amarra embarcación ${eslora} pies × ${formatCurrency(config.amarra_valor_por_pie)}`;
+      const nombreParte = nombreEmbarcacion ? `${nombreEmbarcacion} ` : '';
+      return `Amarra embarcación ${nombreParte}${eslora} pies × ${formatCurrency(config.amarra_valor_por_pie)}`;
     }
 
     if (tipo === 'vela_ligera') {
-      return 'Guardería vela ligera';
+      const nombreParte = nombreEmbarcacion ? `${nombreEmbarcacion} - ` : '';
+      return `${nombreParte}Guardería vela ligera`;
     }
 
     if (tipo === 'optimist') {
-      return 'Guardería optimist';
+      const nombreParte = nombreEmbarcacion ? `${nombreEmbarcacion} - ` : '';
+      return `${nombreParte}Guardería optimist`;
     }
 
     if (tipo === 'moto_agua') {
-      return 'Guardería moto de agua';
+      const nombreParte = nombreEmbarcacion ? `${nombreEmbarcacion} - ` : '';
+      return `${nombreParte}Guardería moto de agua`;
     }
 
     if (tipo === 'cuatriciclo') {
-      return 'Guardería cuatriciclo';
+      const nombreParte = nombreEmbarcacion ? `${nombreEmbarcacion} - ` : '';
+      return `${nombreParte}Guardería cuatriciclo`;
     }
 
     if (tipo === 'windsurf' || tipo === 'kayak' || tipo === 'canoa') {
-      return 'Guardería windsurf/kayak/canoa';
+      const nombreParte = nombreEmbarcacion ? `${nombreEmbarcacion} - ` : '';
+      return `${nombreParte}Guardería windsurf/kayak/canoa`;
     }
 
     if (tipo === 'lancha') {
       if (eslora <= 18) {
-        return 'Guardería lancha/moto hasta 5.5m';
+        const nombreParte = nombreEmbarcacion ? `${nombreEmbarcacion} - ` : '';
+        return `${nombreParte}Guardería lancha/moto hasta 5.5m`;
       }
     }
 
     // Por defecto
-    return `Amarra embarcación ${eslora} pies × ${formatCurrency(config.amarra_valor_por_pie)}`;
+    const nombreParte = nombreEmbarcacion ? `${nombreEmbarcacion} ` : '';
+    return `Amarra embarcación ${nombreParte}${eslora} pies × ${formatCurrency(config.amarra_valor_por_pie)}`;
   };
 
   const totalEstimado = vistaPrevia.reduce((sum, item) => sum + item.montoTotal, 0);

@@ -3,7 +3,8 @@ export type MetodoPago =
   | 'efectivo'
   | 'cheque'
   | 'tarjeta_debito'
-  | 'tarjeta_credito';
+  | 'tarjeta_credito'
+  | 'saldo_a_favor';
 
 export type EstadoConciliacion = 'pendiente' | 'conciliado';
 
@@ -65,6 +66,7 @@ export const METODOS_PAGO: Array<{ value: MetodoPago; label: string }> = [
   { value: 'cheque', label: 'Cheque' },
   { value: 'tarjeta_debito', label: 'Tarjeta de Débito' },
   { value: 'tarjeta_credito', label: 'Tarjeta de Crédito' },
+  { value: 'saldo_a_favor', label: 'Saldo a Favor' },
 ];
 
 export function getMetodoPagoLabel(metodo: MetodoPago): string {

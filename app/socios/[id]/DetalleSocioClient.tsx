@@ -9,6 +9,7 @@ import { createClient } from '@/utils/supabase/client';
 import { ItemCupon } from '@/app/types/cupones';
 import { getMetodoPagoLabel } from '@/app/types/pagos';
 import SocioKeywordsPanel from '@/app/components/panels/SocioKeywordsPanel';
+import { generarHistorialCronologico, MovimientoCronologico } from '@/app/utils/generarHistorialCronologico';
 
 interface DetalleSocioClientProps {
     socio: Socio;
@@ -19,9 +20,8 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
     const [resumenCuenta, setResumenCuenta] = useState({
         saldo: 0,
         cuponesPendientes: 0,
-        proximoVencimiento: null as { fecha: string; monto: number; diasRestantes: number } | null,
     });
-    const [historialMovimientos, setHistorialMovimientos] = useState<any[]>([]);
+    const [historialMovimientos, setHistorialMovimientos] = useState<MovimientoCronologico[]>([]);
     const [filtroHistorial, setFiltroHistorial] = useState<'todos' | 'cupones' | 'pagos'>('todos');
     const [embarcaciones, setEmbarcaciones] = useState<Embarcacion[]>([]);
     const [loading, setLoading] = useState(false);
@@ -76,40 +76,39 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
             // Obtener total pagado
             const { data: pagos, error: errorPagos } = await supabase
                 .from('pagos')
-                .select('monto')
+                .select('id, monto')
                 .eq('socio_id', socio.id);
 
             if (errorPagos) {
                 console.error('Error al cargar pagos:', errorPagos);
             }
 
-            // Calcular total de TODOS los cupones (pendientes + pagados)
-            const totalCupones = todosLosCupones?.reduce((sum, c) => sum + (parseFloat(c.monto_total) || 0), 0) || 0;
-            const totalPagado = pagos?.reduce((sum, p) => sum + (parseFloat(p.monto) || 0), 0) || 0;
-            const saldo = totalPagado - totalCupones; // Positivo = a favor, Negativo = debe
-            const cuponesPendientesCount = cuponesPendientes?.length || 0;
-
-            // Calcular próximo vencimiento
-            let proximoVencimiento = null;
-            if (cuponesPendientes && cuponesPendientes.length > 0) {
-                const proximoCupon = cuponesPendientes[0]; // Ya está ordenado por fecha_vencimiento ascendente
-                const fechaVencimiento = new Date(proximoCupon.fecha_vencimiento);
-                const hoy = new Date();
-                hoy.setHours(0, 0, 0, 0);
-                fechaVencimiento.setHours(0, 0, 0, 0);
-                const diasRestantes = Math.ceil((fechaVencimiento.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
+            // Calcular saldo: total cupones - total pagos aplicados
+            // Saldo positivo = debe dinero, Saldo negativo = saldo a favor
+            const totalCupones = todosLosCupones?.reduce((sum, c) => sum + (parseFloat(c.monto_total.toString()) || 0), 0) || 0;
+            
+            // Obtener todos los pagos_cupones para calcular total aplicado
+            const pagosIds = pagos?.map(p => p.id) || [];
+            let totalAplicado = 0;
+            
+            if (pagosIds.length > 0) {
+                const { data: pagosCupones } = await supabase
+                    .from('pagos_cupones')
+                    .select('monto_aplicado')
+                    .in('pago_id', pagosIds);
                 
-                proximoVencimiento = {
-                    fecha: proximoCupon.fecha_vencimiento,
-                    monto: parseFloat(proximoCupon.monto_total),
-                    diasRestantes: diasRestantes,
-                };
+                totalAplicado = pagosCupones?.reduce(
+                    (sum, pc) => sum + parseFloat(pc.monto_aplicado.toString()),
+                    0
+                ) || 0;
             }
+            
+            const saldo = totalAplicado - totalCupones; // Negativo = debe, Positivo = a favor
+            const cuponesPendientesCount = cuponesPendientes?.length || 0;
 
             setResumenCuenta({
                 saldo,
                 cuponesPendientes: cuponesPendientesCount,
-                proximoVencimiento,
             });
         } catch (err) {
             console.error('Error al cargar resumen de cuenta:', err);
@@ -120,99 +119,14 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
         setLoading(true);
         try {
             const supabase = createClient();
-            const movimientos: any[] = [];
-
-            // Cargar cupones y pagos en paralelo (visitas no se muestran, están incluidas en cupones)
-            const [
-                { data: cupones, error: errorCupones },
-                { data: pagos, error: errorPagos }
-            ] = await Promise.all([
-                supabase
-                    .from('cupones')
-                    .select('*')
-                    .eq('socio_id', socio.id)
-                    .order('fecha_emision', { ascending: false })
-                    .limit(50),
-                supabase
-                    .from('pagos')
-                    .select('*')
-                    .eq('socio_id', socio.id)
-                    .order('fecha_pago', { ascending: false })
-                    .limit(50)
-            ]);
-
-            if (!errorCupones && cupones) {
-                cupones.forEach(cupon => {
-                    // Crear fecha del día 1 del mes del período para ordenamiento
-                    const fechaPeriodo = new Date(cupon.periodo_anio, cupon.periodo_mes - 1, 1);
-                    movimientos.push({
-                        tipo: 'cupon',
-                        fecha: cupon.fecha_emision, // Fecha real de emisión (para referencia)
-                        fechaPeriodo: fechaPeriodo.toISOString(), // Fecha del período (día 1) para ordenamiento
-                        concepto: `Cupón ${cupon.numero_cupon}`,
-                        monto: cupon.monto_total,
-                        estado: cupon.estado,
-                        detalle: cupon,
-                    });
-                });
-            }
-
-            if (!errorPagos && pagos) {
-                pagos.forEach(pago => {
-                    // Crear fecha del día 1 del mes del pago para agrupar por período
-                    const fechaPago = new Date(pago.fecha_pago);
-                    const fechaPeriodoPago = new Date(fechaPago.getFullYear(), fechaPago.getMonth(), 1);
-                    movimientos.push({
-                        tipo: 'pago',
-                        fecha: pago.fecha_pago,
-                        fechaPeriodo: fechaPeriodoPago.toISOString(), // Fecha del período (día 1) para ordenamiento
-                        concepto: `Pago - ${pago.metodo_pago}`,
-                        monto: pago.monto,
-                        estado: pago.estado_conciliacion,
-                        detalle: pago,
-                    });
-                });
-            }
-
-            // Las visitas no se muestran en el historial porque están incluidas en la generación del cupón
-
-            // Ordenar por período (día 1 del mes), luego por tipo (cupones primero), luego por fecha específica
-            movimientos.sort((a, b) => {
-                // Primero ordenar por período (día 1 del mes) descendente
-                const fechaPeriodoA = a.fechaPeriodo ? new Date(a.fechaPeriodo).getTime() : new Date(a.fecha).getTime();
-                const fechaPeriodoB = b.fechaPeriodo ? new Date(b.fechaPeriodo).getTime() : new Date(b.fecha).getTime();
-                
-                if (fechaPeriodoB !== fechaPeriodoA) {
-                    return fechaPeriodoB - fechaPeriodoA; // Períodos más recientes primero
-                }
-                
-                // Si están en el mismo período, cupones primero, luego pagos
-                if (a.tipo === 'cupon' && b.tipo === 'pago') {
-                    return -1; // Cupón antes que pago
-                }
-                if (a.tipo === 'pago' && b.tipo === 'cupon') {
-                    return 1; // Pago después de cupón
-                }
-                
-                // Si son del mismo tipo y mismo período:
-                if (a.tipo === 'cupon' && b.tipo === 'cupon') {
-                    // Ordenar cupones por fecha de vencimiento descendente
-                    const fechaVencA = new Date(a.detalle.fecha_vencimiento).getTime();
-                    const fechaVencB = new Date(b.detalle.fecha_vencimiento).getTime();
-                    return fechaVencB - fechaVencA;
-                }
-                
-                if (a.tipo === 'pago' && b.tipo === 'pago') {
-                    // Ordenar pagos por fecha de pago descendente
-                    const fechaPagoA = new Date(a.fecha).getTime();
-                    const fechaPagoB = new Date(b.fecha).getTime();
-                    return fechaPagoB - fechaPagoA;
-                }
-                
-                return 0;
-            });
-
-            setHistorialMovimientos(movimientos);
+            
+            // Usar la nueva función que genera historial cronológico con saldo acumulado
+            const historial = await generarHistorialCronologico(socio.id, supabase);
+            
+            // Mantener orden cronológico (más antiguos primero) para la tabla tipo extracto bancario
+            // El historial ya viene ordenado cronológicamente de generarHistorialCronologico
+            
+            setHistorialMovimientos(historial);
         } catch (err) {
             console.error('Error al cargar historial:', err);
         } finally {
@@ -247,10 +161,15 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
         return tipoObj?.label || tipo;
     };
 
-    const movimientosFiltrados = historialMovimientos.filter(mov => {
-        if (filtroHistorial === 'todos') return true;
-        return mov.tipo === filtroHistorial;
-    });
+    const movimientosFiltrados = historialMovimientos
+        .filter(mov => {
+            if (filtroHistorial === 'todos') return true;
+        // Mapear 'cupones' -> 'cupon' y 'pagos' -> 'pago'
+        if (filtroHistorial === 'cupones') return mov.tipo === 'cupon';
+        if (filtroHistorial === 'pagos') return mov.tipo === 'pago';
+            return false;
+        })
+        .reverse(); // Invertir orden para mostrar más recientes primero
 
     const getEstadoBadgeClass = (estado: string) => {
         switch (estado) {
@@ -277,14 +196,128 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
         }).format(amount);
     };
 
-    const getMovimientoKey = (mov: any, index: number) => {
-        if (mov.tipo === 'cupon') return `cupon-${mov.detalle.id}`;
-        if (mov.tipo === 'pago') return `pago-${mov.detalle.id}`;
-        if (mov.tipo === 'visita') return `visita-${mov.detalle.id}`;
+    // Helper para formatear fecha en formato DD/MM/YYYY
+    const formatFechaTabla = (fecha: string, mov?: MovimientoCronologico) => {
+        // Si es un cupón, usar el día 1 del período en lugar de la fecha de emisión
+        if (mov && mov.tipo === 'cupon' && mov.detalle) {
+            const cupon = mov.detalle;
+            if (cupon.periodo_mes && cupon.periodo_anio) {
+                const day = '01';
+                const month = String(cupon.periodo_mes).padStart(2, '0');
+                const year = cupon.periodo_anio;
+                return `${day}/${month}/${year}`;
+            }
+        }
+        
+        // Para pagos o si no hay período, usar la fecha original
+        const date = new Date(fecha);
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`;
+    };
+
+    // Helper para generar descripción detallada de cupón
+    const getDescripcionCupon = (mov: MovimientoCronologico): string => {
+        const cupon = mov.detalle;
+        if (!cupon) return mov.concepto || 'Cupón';
+
+        let descripcion = '';
+        
+        // Agregar concepto principal si existe
+        if (cupon.concepto) {
+            descripcion = cupon.concepto;
+        } else {
+            // Si no hay concepto, intentar obtener del primer item si está cargado
+            const items = itemsCupones.get(cupon.id);
+            if (items && items.length > 0) {
+                descripcion = items[0].descripcion;
+            } else {
+                // Si no hay items cargados, usar descripción genérica
+                descripcion = 'Cuota social';
+            }
+        }
+
+        // Agregar número de cupón y período
+        if (cupon.numero_cupon) {
+            descripcion = `Cupón ${cupon.numero_cupon} - ${descripcion}`;
+        }
+        
+        // Agregar período si existe
+        if (cupon.periodo_mes && cupon.periodo_anio) {
+            descripcion += ` (${String(cupon.periodo_mes).padStart(2, '0')}/${cupon.periodo_anio})`;
+        }
+
+        // Agregar estado si es relevante
+        if (cupon.estado === 'vencido') {
+            descripcion += ' - Vencido';
+        } else if (cupon.estado === 'parcialmente_pagado') {
+            descripcion += ' - Parcialmente pagado';
+        }
+
+        return descripcion;
+    };
+
+    // Helper para generar descripción detallada de pago
+    const getDescripcionPago = (mov: MovimientoCronologico): string => {
+        const pago = mov.detalle;
+        if (!pago) return mov.concepto || 'Pago';
+
+        let descripcion = getMetodoPagoLabel(pago.metodo_pago);
+
+        // Agregar referencia bancaria si existe
+        if (pago.referencia_bancaria) {
+            descripcion += ` - Ref: ${pago.referencia_bancaria}`;
+        }
+
+        // Agregar número de comprobante si existe
+        if (pago.numero_comprobante) {
+            descripcion += ` - Comp: ${pago.numero_comprobante}`;
+        }
+
+        // Agregar información del cupón aplicado si existe
+        if (mov.cuponId && pago.id) {
+            const cuponesDelPago = cuponesPagos.get(pago.id);
+            if (cuponesDelPago && cuponesDelPago.length > 0) {
+                const cuponesNums = cuponesDelPago.map((pc: any) => 
+                    pc.cupon?.numero_cupon || `Cupón #${pc.cupon_id}`
+                ).join(', ');
+                if (cuponesDelPago.length === 1) {
+                    descripcion += ` - Aplicado a ${cuponesNums}`;
+                } else {
+                    descripcion += ` - Aplicado a: ${cuponesNums}`;
+                }
+            }
+        } else if (mov.esSaldoAFavor) {
+            // Si el pago no tiene cupones asociados, indicar que quedó como saldo a favor
+            descripcion += ' - Guardado como saldo a favor';
+        }
+
+        // Agregar observaciones si son relevantes y cortas
+        if (pago.observaciones && pago.observaciones.length < 50) {
+            descripcion += ` - ${pago.observaciones}`;
+        }
+
+        return descripcion;
+    };
+
+    // Helper para obtener el importe formateado (negativo para cupones, positivo para pagos)
+    const getImporteFormateado = (mov: MovimientoCronologico): string => {
+        const monto = mov.tipo === 'cupon' 
+            ? -mov.monto  // Cupones como negativo
+            : (mov.montoAplicado || mov.monto); // Pagos como positivo
+        
+        const signo = monto < 0 ? '-' : '';
+        return `${signo}$ ${Math.abs(monto).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+
+    const getMovimientoKey = (mov: MovimientoCronologico, index: number) => {
+        if (mov.tipo === 'cupon' && mov.cuponId) return `cupon-${mov.cuponId}`;
+        if (mov.tipo === 'pago' && mov.pagoId) return `pago-${mov.pagoId}-${mov.cuponId || 'none'}`;
         return `mov-${index}`;
     };
 
-    const toggleMovimiento = async (mov: any, index: number) => {
+    const toggleMovimiento = async (mov: MovimientoCronologico, index: number) => {
         const key = getMovimientoKey(mov, index);
         const nuevoExpandidos = new Set(movimientosExpandidos);
         
@@ -294,8 +327,8 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
             nuevoExpandidos.add(key);
             
             // Cargar items si es un cupón
-            if (mov.tipo === 'cupon' && mov.detalle.id) {
-                const cuponId = mov.detalle.id;
+            if (mov.tipo === 'cupon' && (mov.cuponId || mov.detalle?.id)) {
+                const cuponId = mov.cuponId || mov.detalle.id;
                 if (!itemsCupones.has(cuponId) && !cargandoItems.has(cuponId)) {
                     setCargandoItems(prev => new Set(prev).add(cuponId));
                     try {
@@ -322,8 +355,8 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
             }
             
             // Cargar cupones asociados si es un pago
-            if (mov.tipo === 'pago' && mov.detalle.id) {
-                const pagoId = mov.detalle.id;
+            if (mov.tipo === 'pago' && (mov.pagoId || mov.detalle?.id)) {
+                const pagoId = mov.pagoId || mov.detalle.id;
                 if (!cuponesPagos.has(pagoId) && !cargandoItems.has(pagoId)) {
                     setCargandoItems(prev => new Set(prev).add(pagoId));
                     try {
@@ -362,7 +395,7 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
         setMovimientosExpandidos(nuevoExpandidos);
     };
 
-    const isMovimientoExpandido = (mov: any, index: number) => {
+    const isMovimientoExpandido = (mov: MovimientoCronologico, index: number) => {
         const key = getMovimientoKey(mov, index);
         return movimientosExpandidos.has(key);
     };
@@ -619,87 +652,41 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
 
                         {/* Resumen de Cuenta - Siempre Visible */}
                         <div>
-                            <h3 className="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
+                            <h3 className="text-base font-medium text-gray-700 mb-3">
                                 Resumen de Cuenta
                             </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                {/* Saldo */}
-                                <div className={`border-2 rounded-lg p-6 ${resumenCuenta.saldo >= 0 
-                                    ? 'bg-green-50 border-green-300' 
-                                    : 'bg-red-50 border-red-300'
-                                }`}>
-                                    <p className={`text-base font-medium mb-2 ${resumenCuenta.saldo >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                        Saldo
-                                    </p>
-                                    <p className={`text-4xl font-bold ${resumenCuenta.saldo >= 0 ? 'text-green-900' : 'text-red-900'}`}>
-                                        {resumenCuenta.saldo >= 0 ? '+' : ''}${Math.abs(resumenCuenta.saldo).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    </p>
-                                    <p className={`text-sm mt-2 ${resumenCuenta.saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                        {resumenCuenta.saldo >= 0 ? 'A favor' : 'Debe'}
-                                    </p>
-                                </div>
-                                
-                                {/* Cupones Pendientes */}
-                                <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-6">
-                                    <p className="text-base font-medium text-yellow-700 mb-2">Cupones Pendientes</p>
-                                    <p className="text-4xl font-bold text-yellow-900">
-                                        {resumenCuenta.cuponesPendientes}
-                                    </p>
-                                    <p className="text-sm text-yellow-600 mt-2">
-                                        {resumenCuenta.cuponesPendientes === 1 ? 'cupón' : 'cupones'} por pagar
-                                    </p>
-                                </div>
-                                
-                                {/* Próximo Vencimiento */}
-                                <div className={`border-2 rounded-lg p-6 ${resumenCuenta.proximoVencimiento && resumenCuenta.proximoVencimiento.diasRestantes <= 7
-                                    ? 'bg-red-50 border-red-300'
-                                    : resumenCuenta.proximoVencimiento && resumenCuenta.proximoVencimiento.diasRestantes <= 15
-                                    ? 'bg-orange-50 border-orange-300'
-                                    : 'bg-blue-50 border-blue-300'
-                                }`}>
-                                    <p className={`text-base font-medium mb-2 ${resumenCuenta.proximoVencimiento && resumenCuenta.proximoVencimiento.diasRestantes <= 7
-                                        ? 'text-red-700'
-                                        : resumenCuenta.proximoVencimiento && resumenCuenta.proximoVencimiento.diasRestantes <= 15
-                                        ? 'text-orange-700'
-                                        : 'text-blue-700'
-                                    }`}>
-                                        Próximo Vencimiento
-                                    </p>
-                                    {resumenCuenta.proximoVencimiento ? (
-                                        <>
-                                            <p className={`text-2xl font-bold mb-1 ${resumenCuenta.proximoVencimiento.diasRestantes <= 7
-                                                ? 'text-red-900'
-                                                : resumenCuenta.proximoVencimiento.diasRestantes <= 15
-                                                ? 'text-orange-900'
-                                                : 'text-blue-900'
+                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                    <div>
+                                        <p className="text-sm text-gray-600 mb-1">Saldo</p>
+                                        <p className={`text-xl font-semibold ${
+                                            resumenCuenta.saldo > 0 
+                                                ? 'text-green-600' 
+                                                : resumenCuenta.saldo < 0 
+                                                ? 'text-red-600' 
+                                                : 'text-gray-900'
+                                        }`}>
+                                            {resumenCuenta.saldo < 0 ? '-' : resumenCuenta.saldo > 0 ? '+' : ''}${Math.abs(resumenCuenta.saldo).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            <span className={`text-sm font-normal ml-2 ${
+                                                resumenCuenta.saldo > 0 
+                                                    ? 'text-green-600' 
+                                                    : resumenCuenta.saldo < 0 
+                                                    ? 'text-red-600' 
+                                                    : 'text-gray-600'
                                             }`}>
-                                                ${resumenCuenta.proximoVencimiento.monto.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                            </p>
-                                            <p className={`text-sm ${resumenCuenta.proximoVencimiento.diasRestantes <= 7
-                                                ? 'text-red-600'
-                                                : resumenCuenta.proximoVencimiento.diasRestantes <= 15
-                                                ? 'text-orange-600'
-                                                : 'text-blue-600'
-                                            }`}>
-                                                {formatDate(resumenCuenta.proximoVencimiento.fecha)}
-                                            </p>
-                                            <p className={`text-sm font-medium mt-1 ${resumenCuenta.proximoVencimiento.diasRestantes <= 7
-                                                ? 'text-red-700'
-                                                : resumenCuenta.proximoVencimiento.diasRestantes <= 15
-                                                ? 'text-orange-700'
-                                                : 'text-blue-700'
-                                            }`}>
-                                                {resumenCuenta.proximoVencimiento.diasRestantes < 0 
-                                                    ? `Vencido hace ${Math.abs(resumenCuenta.proximoVencimiento.diasRestantes)} ${Math.abs(resumenCuenta.proximoVencimiento.diasRestantes) === 1 ? 'día' : 'días'}`
-                                                    : resumenCuenta.proximoVencimiento.diasRestantes === 0
-                                                    ? 'Vence hoy'
-                                                    : `${resumenCuenta.proximoVencimiento.diasRestantes} ${resumenCuenta.proximoVencimiento.diasRestantes === 1 ? 'día' : 'días'} restantes`
-                                                }
-                                            </p>
-                                        </>
-                                    ) : (
-                                        <p className="text-gray-500 text-sm">No hay cupones pendientes</p>
-                                    )}
+                                                {resumenCuenta.saldo < 0 ? '(Debe)' : resumenCuenta.saldo > 0 ? '(A favor)' : '(Al día)'}
+                                            </span>
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-gray-600 mb-1">Cupones Pendientes</p>
+                                        <p className="text-xl font-semibold text-gray-900">
+                                            {resumenCuenta.cuponesPendientes}
+                                            <span className="text-sm font-normal text-gray-600 ml-2">
+                                                {resumenCuenta.cuponesPendientes === 1 ? 'cupón' : 'cupones'}
+                                            </span>
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -753,287 +740,344 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                                     No hay movimientos registrados
                                 </div>
                             ) : (
-                                <div className="space-y-2" style={{ maxHeight: '42rem', overflowY: 'auto' }}>
-                                    {movimientosFiltrados.map((mov, index) => {
-                                        const expandido = isMovimientoExpandido(mov, index);
-                                        const cupon = mov.tipo === 'cupon' ? mov.detalle : null;
-                                        const pago = mov.tipo === 'pago' ? mov.detalle : null;
-                                        
-                                        return (
-                                        <div
-                                            key={index}
-                                                className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden"
-                                            >
-                                                <button
-                                                    onClick={() => toggleMovimiento(mov, index)}
-                                                    className="w-full flex items-center justify-between p-3 hover:bg-gray-100 transition-colors"
-                                                >
-                                                    <div className="flex-1 flex items-center gap-3">
-                                                        <svg
-                                                            className={`w-4 h-4 text-gray-400 transition-transform ${expandido ? 'rotate-90' : ''}`}
-                                                            fill="none"
-                                                            stroke="currentColor"
-                                                            viewBox="0 0 24 24"
-                                                        >
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                                        </svg>
-                                                <div className="flex items-center gap-2">
-                                                            <span
-                                                                className={`px-2 py-1 text-xs rounded font-medium ${mov.tipo === 'cupon'
-                                                                        ? 'bg-blue-100 text-blue-800'
-                                                                        : 'bg-green-100 text-green-800'
-                                                                    }`}
+                                <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                                    <div className="overflow-x-auto" style={{ maxHeight: '42rem', overflowY: 'auto' }}>
+                                        <table className="min-w-full divide-y divide-gray-200">
+                                            <thead className="bg-gray-50 sticky top-0">
+                                                <tr>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Fecha
+                                                    </th>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Tipo
+                                                    </th>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Descripción
+                                                    </th>
+                                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Importe
+                                                    </th>
+                                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Saldo
+                                                    </th>
+                                                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
+                                                        Acciones
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                                {movimientosFiltrados.map((mov, index) => {
+                                                    const cupon = mov.tipo === 'cupon' ? mov.detalle : null;
+                                                    const pago = mov.tipo === 'pago' ? mov.detalle : null;
+                                                    const descripcion = mov.tipo === 'cupon' 
+                                                        ? getDescripcionCupon(mov)
+                                                        : getDescripcionPago(mov);
+                                                    const importe = getImporteFormateado(mov);
+                                                    const saldo = mov.saldoAcumulado !== undefined 
+                                                        ? mov.saldoAcumulado 
+                                                        : 0;
+                                                    const expandido = isMovimientoExpandido(mov, index);
+                                                    const saldoPendiente = mov.saldoPendienteCupon;
+                                                    
+                                                    return (
+                                                        <React.Fragment key={index}>
+                                                            <tr 
+                                                                className="hover:bg-gray-50 transition-colors"
                                                             >
-                                                                {mov.tipo === 'cupon' ? 'Cupón' : 'Pago'}
-                                                            </span>
-                                                    <span className="text-sm font-medium text-gray-900">
-                                                        {mov.concepto}
-                                                    </span>
-                                                </div>
-                                                        <div className="flex items-center gap-2 text-xs text-gray-500">
-                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                                            </svg>
-                                                            <span className="font-medium">
-                                                                {mov.tipo === 'cupon' && cupon 
-                                                                    ? `${String(cupon.periodo_mes).padStart(2, '0')}/${cupon.periodo_anio}`
-                                                                    : formatDate(mov.fecha)
-                                                                }
-                                                            </span>
-                                                        </div>
-                                            </div>
-                                                    <div className="text-right ml-4">
-                                                <p className="text-sm font-semibold text-gray-900">
-                                                    ${parseFloat(mov.monto).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                </p>
-                                                <p className="text-xs text-gray-500 capitalize">{mov.estado}</p>
-                                                    </div>
-                                                </button>
-                                                
-                                                {expandido && (
-                                                    <div className="border-t border-gray-200 bg-white p-4">
-                                                        {mov.tipo === 'cupon' && cupon && (
-                                                            <div className="space-y-4">
-                                                                {/* Información del Cupón - Colapsable */}
-                                                                <div className="border border-gray-200 rounded-lg">
+                                                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                                                                    {formatFechaTabla(mov.fecha, mov)}
+                                                                </td>
+                                                                <td className="px-4 py-3 whitespace-nowrap">
+                                                                    <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
+                                                                        {mov.tipo === 'cupon' ? 'Cupón' : 'Pago'}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-sm text-gray-900">
+                                                                    {descripcion}
+                                                                </td>
+                                                                <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-medium text-gray-900">
+                                                                    {importe}
+                                                                </td>
+                                                                <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-semibold text-gray-900">
+                                                                    $ {saldo.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                </td>
+                                                                <td className="px-4 py-3 whitespace-nowrap text-center">
                                                                     <button
-                                                                        onClick={() => {
-                                                                            const nuevo = new Map(infoCuponColapsada);
-                                                                            nuevo.set(cupon.id, !nuevo.get(cupon.id));
-                                                                            setInfoCuponColapsada(nuevo);
-                                                                        }}
-                                                                        className="w-full flex items-center justify-between p-2 hover:bg-gray-50 transition-colors"
+                                                                        onClick={() => toggleMovimiento(mov, index)}
+                                                                        className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                                                                        aria-label={expandido ? 'Colapsar detalles' : 'Expandir detalles'}
                                                                     >
-                                                                        <h4 className="text-sm font-semibold text-gray-900">
-                                                                            Información del Cupón
-                                                                        </h4>
                                                                         <svg
-                                                                            className={`w-4 h-4 text-gray-500 transition-transform ${infoCuponColapsada.get(cupon.id) === false ? 'rotate-180' : ''}`}
+                                                                            className={`w-5 h-5 transition-transform ${expandido ? 'rotate-90' : ''}`}
                                                                             fill="none"
                                                                             stroke="currentColor"
                                                                             viewBox="0 0 24 24"
                                                                         >
-                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                                                                         </svg>
                                                                     </button>
-                                                                    {infoCuponColapsada.get(cupon.id) === false && (
-                                                                        <div className="p-3 pt-0 border-t border-gray-200">
-                                                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
-                                                                                <div>
-                                                                                    <label className="block text-xs font-medium text-gray-500 mb-0.5">Número</label>
-                                                                                    <p className="text-gray-900 font-medium text-xs">{cupon.numero_cupon}</p>
+                                                                </td>
+                                                            </tr>
+                                                            {expandido && (
+                                                                <tr className="bg-gray-50">
+                                                                    <td colSpan={6} className="px-4 py-4">
+                                                                        {mov.tipo === 'cupon' && cupon && (
+                                                                            <div className="space-y-4">
+                                                                                {/* Información del Cupón - Colapsable */}
+                                                                                <div className="border border-gray-200 rounded-lg bg-white">
+                                                                                    <button
+                                                                                        onClick={() => {
+                                                                                            const nuevo = new Map(infoCuponColapsada);
+                                                                                            nuevo.set(cupon.id, !nuevo.get(cupon.id));
+                                                                                            setInfoCuponColapsada(nuevo);
+                                                                                        }}
+                                                                                        className="w-full flex items-center justify-between p-3 hover:bg-gray-50 transition-colors"
+                                                                                    >
+                                                                                        <h4 className="text-sm font-semibold text-gray-900">
+                                                                                            Información del Cupón
+                                                                                        </h4>
+                                                                                        <svg
+                                                                                            className={`w-4 h-4 text-gray-500 transition-transform ${infoCuponColapsada.get(cupon.id) === false ? 'rotate-180' : ''}`}
+                                                                                            fill="none"
+                                                                                            stroke="currentColor"
+                                                                                            viewBox="0 0 24 24"
+                                                                                        >
+                                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                                                        </svg>
+                                                                                    </button>
+                                                                                    {infoCuponColapsada.get(cupon.id) === false && (
+                                                                                        <div className="p-3 pt-0 border-t border-gray-200">
+                                                                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                                                                                                <div>
+                                                                                                    <label className="block text-xs font-medium text-gray-500 mb-1">Número</label>
+                                                                                                    <p className="text-gray-900 font-medium">{cupon.numero_cupon}</p>
+                                                                                                </div>
+                                                                                                <div>
+                                                                                                    <label className="block text-xs font-medium text-gray-500 mb-1">Estado</label>
+                                                                                                    <span className={`inline-block px-2 py-1 text-xs rounded-full font-medium ${
+                                                                                                        cupon.estado === 'pagado' ? 'bg-green-100 text-green-800' :
+                                                                                                        cupon.estado === 'vencido' ? 'bg-red-100 text-red-800' :
+                                                                                                        'bg-yellow-100 text-yellow-800'
+                                                                                                    }`}>
+                                                                                                        {formatEstado(cupon.estado)}
+                                                                                                    </span>
+                                                                                                </div>
+                                                                                                <div>
+                                                                                                    <label className="block text-xs font-medium text-gray-500 mb-1">Período</label>
+                                                                                                    <p className="text-gray-900">{cupon.periodo_mes}/{cupon.periodo_anio}</p>
+                                                                                                </div>
+                                                                                                <div>
+                                                                                                    <label className="block text-xs font-medium text-gray-500 mb-1">Emisión</label>
+                                                                                                    <p className="text-gray-900">{formatDate(cupon.fecha_emision)}</p>
+                                                                                                </div>
+                                                                                                <div>
+                                                                                                    <label className="block text-xs font-medium text-gray-500 mb-1">Vencimiento</label>
+                                                                                                    <p className="text-gray-900">{formatDate(cupon.fecha_vencimiento)}</p>
+                                                                                                </div>
+                                                                                                {cupon.fecha_pago && (
+                                                                                                    <div>
+                                                                                                        <label className="block text-xs font-medium text-gray-500 mb-1">Pago</label>
+                                                                                                        <p className="text-gray-900">{formatDate(cupon.fecha_pago)}</p>
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    )}
                                                                                 </div>
-                                                                                <div>
-                                                                                    <label className="block text-xs font-medium text-gray-500 mb-0.5">Estado</label>
-                                                                                    <span className={`inline-block px-1.5 py-0.5 text-xs rounded-full font-medium ${
-                                                                                        cupon.estado === 'pagado' ? 'bg-green-100 text-green-800' :
-                                                                                        cupon.estado === 'vencido' ? 'bg-red-100 text-red-800' :
-                                                                                        'bg-yellow-100 text-yellow-800'
-                                                                                    }`}>
-                                                                                        {formatEstado(cupon.estado)}
-                                                                                    </span>
-                                                                                </div>
-                                                                                <div>
-                                                                                    <label className="block text-xs font-medium text-gray-500 mb-0.5">Período</label>
-                                                                                    <p className="text-gray-900 text-xs">{cupon.periodo_mes}/{cupon.periodo_anio}</p>
-                                                                                </div>
-                                                                                <div>
-                                                                                    <label className="block text-xs font-medium text-gray-500 mb-0.5">Emisión</label>
-                                                                                    <p className="text-gray-900 text-xs">{formatDate(cupon.fecha_emision)}</p>
-                                                                                </div>
-                                                                                <div>
-                                                                                    <label className="block text-xs font-medium text-gray-500 mb-0.5">Vencimiento</label>
-                                                                                    <p className="text-gray-900 text-xs">{formatDate(cupon.fecha_vencimiento)}</p>
-                                                                                </div>
-                                                                                {cupon.fecha_pago && (
+                                                                                
+                                                                                {/* Items del Cupón */}
+                                                                                {cargandoItems.has(cupon.id) ? (
+                                                                                    <div className="text-center py-4 text-sm text-gray-500">Cargando items...</div>
+                                                                                ) : itemsCupones.has(cupon.id) && itemsCupones.get(cupon.id)!.length > 0 ? (
                                                                                     <div>
-                                                                                        <label className="block text-xs font-medium text-gray-500 mb-0.5">Pago</label>
-                                                                                        <p className="text-gray-900 text-xs">{formatDate(cupon.fecha_pago)}</p>
+                                                                                        <h4 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                                                                                            Items del Cupón
+                                                                                        </h4>
+                                                                                        <div className="overflow-x-auto">
+                                                                                            <table className="min-w-full divide-y divide-gray-200 text-sm">
+                                                                                                <thead className="bg-gray-50">
+                                                                                                    <tr>
+                                                                                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Descripción</th>
+                                                                                                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Cantidad</th>
+                                                                                                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Precio Unit.</th>
+                                                                                                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Subtotal</th>
+                                                                                                    </tr>
+                                                                                                </thead>
+                                                                                                <tbody className="bg-white divide-y divide-gray-200">
+                                                                                                    {itemsCupones.get(cupon.id)!.map((item) => (
+                                                                                                        <tr key={item.id}>
+                                                                                                            <td className="px-3 py-2 text-gray-900">{item.descripcion}</td>
+                                                                                                            <td className="px-3 py-2 text-right text-gray-900">{item.cantidad}</td>
+                                                                                                            <td className="px-3 py-2 text-right text-gray-900">
+                                                                                                                {item.precio_unitario ? formatCurrency(parseFloat(item.precio_unitario.toString())) : '-'}
+                                                                                                            </td>
+                                                                                                            <td className="px-3 py-2 text-right font-medium text-gray-900">
+                                                                                                                {formatCurrency(parseFloat(item.subtotal.toString()))}
+                                                                                                            </td>
+                                                                                                        </tr>
+                                                                                                    ))}
+                                                                                                </tbody>
+                                                                                            </table>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                ) : null}
+                                                                                
+                                                                                {cupon.observaciones && (
+                                                                                    <div>
+                                                                                        <h4 className="text-sm font-semibold text-gray-900 mb-2">Observaciones</h4>
+                                                                                        <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 p-3 rounded">{cupon.observaciones}</p>
                                                                                     </div>
                                                                                 )}
                                                                             </div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                                
-                                                                {/* Items del Cupón */}
-                                                                {cargandoItems.has(cupon.id) ? (
-                                                                    <div className="text-center py-4 text-sm text-gray-500">Cargando items...</div>
-                                                                ) : itemsCupones.has(cupon.id) && itemsCupones.get(cupon.id)!.length > 0 ? (
-                                                                    <div>
-                                                                        <h4 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
-                                                                            Items del Cupón
-                                                                        </h4>
-                                                                        <div className="overflow-x-auto">
-                                                                            <table className="min-w-full divide-y divide-gray-200 text-sm">
-                                                                                <thead className="bg-gray-50">
-                                                                                    <tr>
-                                                                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Descripción</th>
-                                                                                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Cantidad</th>
-                                                                                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Precio Unit.</th>
-                                                                                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Subtotal</th>
-                                                                                    </tr>
-                                                                                </thead>
-                                                                                <tbody className="bg-white divide-y divide-gray-200">
-                                                                                    {itemsCupones.get(cupon.id)!.map((item) => (
-                                                                                        <tr key={item.id}>
-                                                                                            <td className="px-3 py-2 text-gray-900">{item.descripcion}</td>
-                                                                                            <td className="px-3 py-2 text-right text-gray-900">{item.cantidad}</td>
-                                                                                            <td className="px-3 py-2 text-right text-gray-900">
-                                                                                                {item.precio_unitario ? formatCurrency(parseFloat(item.precio_unitario.toString())) : '-'}
-                                                                                            </td>
-                                                                                            <td className="px-3 py-2 text-right font-medium text-gray-900">
-                                                                                                {formatCurrency(parseFloat(item.subtotal.toString()))}
-                                                                                            </td>
-                                                                                        </tr>
-                                                                                    ))}
-                                                                                </tbody>
-                                                                            </table>
-                                                                        </div>
-                                                                    </div>
-                                                                ) : null}
-                                                                
-                                                                {cupon.observaciones && (
-                                                                    <div>
-                                                                        <h4 className="text-sm font-semibold text-gray-900 mb-2">Observaciones</h4>
-                                                                        <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 p-3 rounded">{cupon.observaciones}</p>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                        
-                                                        {mov.tipo === 'pago' && pago && (
-                                                            <div className="space-y-4">
-                                                                {/* Información del Pago */}
-                                                                <div>
-                                                                    <h4 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
-                                                                        Información del Pago
-                                                                    </h4>
-                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                                                                        <div>
-                                                                            <label className="block text-xs font-medium text-gray-500 mb-1">Fecha de Pago</label>
-                                                                            <p className="text-gray-900">{formatDate(pago.fecha_pago)}</p>
-                                                                        </div>
-                                                                        <div>
-                                                                            <label className="block text-xs font-medium text-gray-500 mb-1">Monto</label>
-                                                                            <p className="text-gray-900 font-semibold">{formatCurrency(parseFloat(pago.monto.toString()))}</p>
-                                                                        </div>
-                                                                        <div>
-                                                                            <label className="block text-xs font-medium text-gray-500 mb-1">Método de Pago</label>
-                                                                            <p className="text-gray-900">{getMetodoPagoLabel(pago.metodo_pago)}</p>
-                                                                        </div>
-                                                                        <div>
-                                                                            <label className="block text-xs font-medium text-gray-500 mb-1">Estado de Conciliación</label>
-                                                                            <span className={`inline-block px-2 py-1 text-xs rounded-full font-medium ${
-                                                                                pago.estado_conciliacion === 'conciliado' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                                                                            }`}>
-                                                                                {pago.estado_conciliacion === 'conciliado' ? 'Conciliado' : 'Pendiente'}
-                                                                            </span>
-                                                                        </div>
-                                                                        {pago.numero_comprobante && (
-                                                                            <div>
-                                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Número de Comprobante</label>
-                                                                                <p className="text-gray-900">{pago.numero_comprobante}</p>
-                                                                            </div>
                                                                         )}
-                                                                        {pago.referencia_bancaria && (
-                                                                            <div>
-                                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Referencia Bancaria</label>
-                                                                                <p className="text-gray-900 font-medium text-blue-600">{pago.referencia_bancaria}</p>
-                                                                            </div>
-                                                                        )}
-                                                                        {pago.fecha_conciliacion && (
-                                                                            <div>
-                                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Fecha de Conciliación</label>
-                                                                                <p className="text-gray-900">{formatDate(pago.fecha_conciliacion)}</p>
-                                                                            </div>
-                                                                        )}
-                                            </div>
-                                        </div>
-                                                                
-                                                                {/* Cupones Asociados */}
-                                                                {cargandoItems.has(pago.id) ? (
-                                                                    <div className="text-center py-4 text-sm text-gray-500">Cargando cupones asociados...</div>
-                                                                ) : cuponesPagos.has(pago.id) && cuponesPagos.get(pago.id)!.length > 0 ? (
-                                                                    <div>
-                                                                        <h4 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
-                                                                            Cupones Asociados ({cuponesPagos.get(pago.id)!.length})
-                                                                        </h4>
-                                                                        <div className="overflow-x-auto">
-                                                                            <table className="min-w-full divide-y divide-gray-200 text-sm">
-                                                                                <thead className="bg-gray-50">
-                                                                                    <tr>
-                                                                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cupón</th>
-                                                                                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Monto Total</th>
-                                                                                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Monto Aplicado</th>
-                                                                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                                                                                    </tr>
-                                                                                </thead>
-                                                                                <tbody className="bg-white divide-y divide-gray-200">
-                                                                                    {cuponesPagos.get(pago.id)!.map((pagoCupon: any, idx: number) => (
-                                                                                        <tr key={idx}>
-                                                                                            <td className="px-3 py-2 text-gray-900 font-medium">
-                                                                                                {pagoCupon.cupon?.numero_cupon || `Cupón #${pagoCupon.cupon_id}`}
-                                                                                            </td>
-                                                                                            <td className="px-3 py-2 text-right text-gray-900">
-                                                                                                {formatCurrency(parseFloat(pagoCupon.cupon?.monto_total?.toString() || '0'))}
-                                                                                            </td>
-                                                                                            <td className="px-3 py-2 text-right font-semibold text-gray-900">
-                                                                                                {formatCurrency(parseFloat(pagoCupon.monto_aplicado.toString()))}
-                                                                                            </td>
-                                                                                            <td className="px-3 py-2">
-                                                                                                <span className={`inline-block px-2 py-1 text-xs rounded-full font-medium ${
-                                                                                                    pagoCupon.cupon?.estado === 'pagado' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                                                                        
+                                                                        {mov.tipo === 'pago' && pago && (
+                                                                            <div className="space-y-4">
+                                                                                {/* Información del Pago */}
+                                                                                <div>
+                                                                                    <h4 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                                                                                        Información del Pago
+                                                                                    </h4>
+                                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                                                                        <div>
+                                                                                            <label className="block text-xs font-medium text-gray-500 mb-1">Fecha de Pago</label>
+                                                                                            <p className="text-gray-900">{formatDate(pago.fecha_pago)}</p>
+                                                                                        </div>
+                                                                                        <div>
+                                                                                            <label className="block text-xs font-medium text-gray-500 mb-1">Monto Aplicado</label>
+                                                                                            <p className="text-gray-900 font-semibold">
+                                                                                                {mov.montoAplicado 
+                                                                                                    ? formatCurrency(mov.montoAplicado)
+                                                                                                    : formatCurrency(parseFloat(pago.monto.toString()))
+                                                                                                }
+                                                                                            </p>
+                                                                                            {mov.montoAplicado && mov.montoAplicado !== parseFloat(pago.monto.toString()) && (
+                                                                                                <p className="text-xs text-gray-500 mt-1">
+                                                                                                    (Pago total: {formatCurrency(parseFloat(pago.monto.toString()))})
+                                                                                                </p>
+                                                                                            )}
+                                                                                        </div>
+                                                                                        {saldoPendiente !== undefined && (
+                                                                                            <div>
+                                                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Saldo Pendiente del Cupón</label>
+                                                                                                <p className={`font-semibold ${
+                                                                                                    saldoPendiente === 0 ? 'text-green-600' : 'text-orange-600'
                                                                                                 }`}>
-                                                                                                    {pagoCupon.cupon?.estado === 'pagado' ? 'Pagado' : 'Pendiente'}
-                                                                                                </span>
-                                                                                            </td>
-                                                                                        </tr>
-                                                                                    ))}
-                                                                                </tbody>
-                                                                            </table>
-                                                                        </div>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="text-sm text-gray-500 text-center py-2">
-                                                                        No hay cupones asociados a este pago
-                                                                    </div>
-                                                                )}
-                                                                
-                                                                {pago.observaciones && (
-                                                                    <div>
-                                                                        <h4 className="text-sm font-semibold text-gray-900 mb-2">Observaciones</h4>
-                                                                        <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 p-3 rounded">{pago.observaciones}</p>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                        
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
+                                                                                                    {saldoPendiente === 0 
+                                                                                                        ? '✅ PAGADO COMPLETAMENTE' 
+                                                                                                        : formatCurrency(saldoPendiente)
+                                                                                                    }
+                                                                                                </p>
+                                                                                            </div>
+                                                                                        )}
+                                                                                        <div>
+                                                                                            <label className="block text-xs font-medium text-gray-500 mb-1">Método de Pago</label>
+                                                                                            <p className="text-gray-900">{getMetodoPagoLabel(pago.metodo_pago)}</p>
+                                                                                        </div>
+                                                                                        <div>
+                                                                                            <label className="block text-xs font-medium text-gray-500 mb-1">Estado de Conciliación</label>
+                                                                                            <span className={`inline-block px-2 py-1 text-xs rounded-full font-medium ${
+                                                                                                pago.estado_conciliacion === 'conciliado' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                                                                                            }`}>
+                                                                                                {pago.estado_conciliacion === 'conciliado' ? 'Conciliado' : 'Pendiente'}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                        {pago.numero_comprobante && (
+                                                                                            <div>
+                                                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Número de Comprobante</label>
+                                                                                                <p className="text-gray-900">{pago.numero_comprobante}</p>
+                                                                                            </div>
+                                                                                        )}
+                                                                                        {pago.referencia_bancaria && (
+                                                                                            <div>
+                                                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Referencia Bancaria</label>
+                                                                                                <p className="text-gray-900 font-medium text-blue-600">{pago.referencia_bancaria}</p>
+                                                                                            </div>
+                                                                                        )}
+                                                                                        {pago.fecha_conciliacion && (
+                                                                                            <div>
+                                                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Fecha de Conciliación</label>
+                                                                                                <p className="text-gray-900">{formatDate(pago.fecha_conciliacion)}</p>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                                
+                                                                                {/* Nota de Saldo a Favor si no tiene cupones asociados */}
+                                                                                {mov.esSaldoAFavor && (!cuponesPagos.has(pago.id) || cuponesPagos.get(pago.id)!.length === 0) && (
+                                                                                    <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                                                                                        <p className="text-xs text-purple-800">
+                                                                                            <strong>⚠️ Este pago no tiene cupones asociados.</strong> El monto completo se guardó como saldo a favor y se aplicará automáticamente al próximo cupón generado.
+                                                                                        </p>
+                                                                                    </div>
+                                                                                )}
+                                                                                
+                                                                                {/* Cupones Asociados */}
+                                                                                {cargandoItems.has(pago.id) ? (
+                                                                                    <div className="text-center py-4 text-sm text-gray-500">Cargando cupones asociados...</div>
+                                                                                ) : cuponesPagos.has(pago.id) && cuponesPagos.get(pago.id)!.length > 0 ? (
+                                                                                    <div>
+                                                                                        <h4 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                                                                                            Cupones Asociados ({cuponesPagos.get(pago.id)!.length})
+                                                                                        </h4>
+                                                                                        <div className="overflow-x-auto">
+                                                                                            <table className="min-w-full divide-y divide-gray-200 text-sm">
+                                                                                                <thead className="bg-gray-50">
+                                                                                                    <tr>
+                                                                                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cupón</th>
+                                                                                                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Monto Total</th>
+                                                                                                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Monto Aplicado</th>
+                                                                                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                                                                                                    </tr>
+                                                                                                </thead>
+                                                                                                <tbody className="bg-white divide-y divide-gray-200">
+                                                                                                    {cuponesPagos.get(pago.id)!.map((pagoCupon: any, idx: number) => (
+                                                                                                        <tr key={idx}>
+                                                                                                            <td className="px-3 py-2 text-gray-900 font-medium">
+                                                                                                                {pagoCupon.cupon?.numero_cupon || `Cupón #${pagoCupon.cupon_id}`}
+                                                                                                            </td>
+                                                                                                            <td className="px-3 py-2 text-right text-gray-900">
+                                                                                                                {formatCurrency(parseFloat(pagoCupon.cupon?.monto_total?.toString() || '0'))}
+                                                                                                            </td>
+                                                                                                            <td className="px-3 py-2 text-right font-semibold text-gray-900">
+                                                                                                                {formatCurrency(parseFloat(pagoCupon.monto_aplicado.toString()))}
+                                                                                                            </td>
+                                                                                                            <td className="px-3 py-2">
+                                                                                                                <span className={`inline-block px-2 py-1 text-xs rounded-full font-medium ${
+                                                                                                                    pagoCupon.cupon?.estado === 'pagado' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                                                                                                                }`}>
+                                                                                                                    {pagoCupon.cupon?.estado === 'pagado' ? 'Pagado' : 'Pendiente'}
+                                                                                                                </span>
+                                                                                                            </td>
+                                                                                                        </tr>
+                                                                                                    ))}
+                                                                                                </tbody>
+                                                                                            </table>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <div className="text-sm text-gray-500 text-center py-2">
+                                                                                        No hay cupones asociados a este pago
+                                                                                    </div>
+                                                                                )}
+                                                                                
+                                                                                {pago.observaciones && (
+                                                                                    <div>
+                                                                                        <h4 className="text-sm font-semibold text-gray-900 mb-2">Observaciones</h4>
+                                                                                        <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 p-3 rounded">{pago.observaciones}</p>
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                            )}
+                                                        </React.Fragment>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
                             )}
                         </div>

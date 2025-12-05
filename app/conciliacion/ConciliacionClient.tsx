@@ -64,6 +64,7 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
   } | null>(null);
   const [modalDetalleAbierto, setModalDetalleAbierto] = useState(false);
   const [movimientoSeleccionado, setMovimientoSeleccionado] = useState<MovimientoConMatch | null>(null);
+  const [mostrarInfoConfianza, setMostrarInfoConfianza] = useState(false);
 
   // Estadísticas
   const [estadisticas, setEstadisticas] = useState<EstadisticasConciliacion>({
@@ -314,6 +315,113 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
     }
   };
 
+  // Función unificada para actualizar socio en cualquier tipo de match
+  const actualizarSocioEnMovimiento = async (
+    socioId: number,
+    nuevoNivel: NivelMatch,
+    razon: string
+  ) => {
+    if (!movimientoSeleccionado) return;
+    
+    // Cargar información del socio para obtener su nombre
+    let nombreCompleto = `Socio ID: ${socioId}`;
+    try {
+      const supabase = createSupabaseClient();
+      const { data: socio } = await supabase
+        .from('socios')
+        .select('id, nombre, apellido')
+        .eq('id', socioId)
+        .maybeSingle();
+      
+      if (socio) {
+        nombreCompleto = `${socio.apellido}, ${socio.nombre}`;
+      }
+    } catch (error) {
+      console.error('Error al cargar socio:', error);
+    }
+    
+    // Actualizar movimientosProcesados para que se refleje en todas las tablas
+    const movimientosActualizados = movimientosProcesados.map(m => {
+      if (m.movimiento === movimientoSeleccionado.movimiento) {
+        return {
+          ...m,
+          match: {
+            ...m.match,
+            socio_id: socioId,
+            nivel: nuevoNivel,
+            porcentaje_confianza: 100,
+            razon: razon,
+            nombre_completo: nombreCompleto,
+          }
+        };
+      }
+      return m;
+    });
+    setMovimientosProcesados(movimientosActualizados);
+    
+    // Buscar en match exacto
+    const indexExacto = movimientosMatchExacto.findIndex(
+      m => m.movimiento === movimientoSeleccionado.movimiento
+    );
+    
+    if (indexExacto !== -1) {
+      // Actualizar el socio cambiado para este índice
+      setSociosCambiadosExactos(prev => {
+        const nuevo = new Map(prev);
+        nuevo.set(indexExacto, socioId);
+        return nuevo;
+      });
+      
+      // Si no está seleccionado, seleccionarlo automáticamente
+      if (!seleccionadosExactos.has(indexExacto)) {
+        setSeleccionadosExactos(prev => {
+          const nuevo = new Set(prev);
+          nuevo.add(indexExacto);
+          return nuevo;
+        });
+      }
+    } else {
+      // Buscar en match probable
+      const indexProbable = movimientosMatchProbable.findIndex(
+        m => m.movimiento === movimientoSeleccionado.movimiento
+      );
+      
+      if (indexProbable !== -1) {
+        // Actualizar selección
+        if (!seleccionados.has(indexProbable)) {
+          setSeleccionados(prev => {
+            const nuevo = new Set(prev);
+            nuevo.add(indexProbable);
+            return nuevo;
+          });
+        }
+      } else {
+        // Buscar en sin match
+        const indexSinMatch = movimientosSinMatch.findIndex(
+          m => m.movimiento === movimientoSeleccionado.movimiento
+        );
+        
+        if (indexSinMatch !== -1) {
+          // Actualizar el socio asignado en el mapa
+          setSociosAsignadosSinMatch(prev => {
+            const nuevo = new Map(prev);
+            nuevo.set(indexSinMatch, socioId);
+            return nuevo;
+          });
+          
+          // Seleccionar automáticamente el movimiento para que pueda confirmarse en lote
+          if (!seleccionadosSinMatch.has(indexSinMatch)) {
+            setSeleccionadosSinMatch(prev => {
+              const nuevo = new Set(prev);
+              nuevo.add(indexSinMatch);
+              return nuevo;
+            });
+          }
+        }
+      }
+    }
+  };
+
   // Actualizar estadísticas
   const actualizarEstadisticas = (movimientos: MovimientoConMatch[]) => {
     const stats: EstadisticasConciliacion = {
@@ -336,8 +444,11 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
         stats.match_exacto++;
       } else if (m.match.nivel === 'C' || m.match.nivel === 'D' || m.match.nivel === 'E') {
         stats.match_probable++;
-      } else if (m.match.nivel === 'F') {
-        stats.sin_match++;
+      } else if (m.match.nivel === 'F' || m.match.nivel === 'M') {
+        // Solo contar como sin_match si no está procesado
+        if (m.estado !== 'procesado') {
+          stats.sin_match++;
+        }
       }
       
       if (m.estado === 'procesado') {
@@ -369,20 +480,13 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
     try {
       const supabase = createSupabaseClient();
       
-      // Aplicar cambios de socio si los hay
+      // Aplicar cambios de socio si los hay (usar movimientosProcesados que tiene los cambios)
       const movimientosParaConfirmar = movimientosAConfirmar.map(m => {
-        const index = movimientosMatchExacto.findIndex(exacto => exacto.movimiento === m.movimiento);
-        const socioCambiado = index !== -1 ? sociosCambiadosExactos.get(index) : null;
-        
+        // Buscar el movimiento actualizado en movimientosProcesados
+        const movimientoActualizado = movimientosProcesados.find(proc => proc.movimiento === m.movimiento);
         return {
           movimiento: m.movimiento,
-          match: socioCambiado ? {
-            ...m.match,
-            socio_id: socioCambiado,
-            nivel: 'E' as const,
-            porcentaje_confianza: 100,
-            razon: 'Socio cambiado manualmente'
-          } : m.match,
+          match: movimientoActualizado?.match || m.match,
         };
       });
 
@@ -453,11 +557,17 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
         return;
       }
 
-      const movimientosParaConfirmar = movimientosSeleccionados.map(m => ({
-        movimiento: m.movimiento,
-        match: m.match,
-      }));
+      // Aplicar cambios de socio si los hay (usar movimientosProcesados que tiene los cambios)
+      const movimientosParaConfirmar = movimientosSeleccionados.map(m => {
+        // Buscar el movimiento actualizado en movimientosProcesados
+        const movimientoActualizado = movimientosProcesados.find(proc => proc.movimiento === m.movimiento);
+        return {
+          movimiento: m.movimiento,
+          match: movimientoActualizado?.match || m.match,
+        };
+      });
 
+      // NO guardar keywords para match probable/exacto (solo sin match)
       const resultado = await confirmarPagosEnLote(
         movimientosParaConfirmar, 
         supabase,
@@ -557,16 +667,45 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
             razon: 'Asignación manual'
           };
 
+          // SOLO sin match guarda keywords al confirmar
           const resultado = await confirmarPagoDesdeMovimiento(
             movimiento.movimiento,
             supabase,
             socioId,
             undefined, // cuponesPrecargados
-            true // guardarKeywords - es asignación manual desde sin match
+            true // guardarKeywords - SOLO para sin match
           );
 
           if (resultado.success) {
             exitosos++;
+            
+            // Actualizar el movimiento en la lista para mostrarlo como procesado
+            setMovimientosProcesados((prev) =>
+              prev.map((m) => {
+                if (m.movimiento === movimiento.movimiento) {
+                  return {
+                    ...m,
+                    estado: 'procesado',
+                    id: resultado.movimientoId,
+                    match: {
+                      ...m.match,
+                      socio_id: socioId,
+                      nivel: 'M' as NivelMatch,
+                      porcentaje_confianza: 100,
+                      razon: 'Asignación manual - Procesado'
+                    },
+                    pagoAsociado: {
+                      id: resultado.pagoId!,
+                      fecha_pago: movimiento.movimiento.fecha_movimiento,
+                      monto: movimiento.movimiento.monto,
+                      metodo_pago: 'transferencia_bancaria',
+                      referencia_bancaria: movimiento.movimiento.referencia_bancaria || undefined,
+                    }
+                  };
+                }
+                return m;
+              })
+            );
           } else {
             fallidos++;
             errores.push({
@@ -589,21 +728,18 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
           (fallidos > 0 ? `${fallidos} pagos fallaron.` : '')
         );
 
-        // Remover los movimientos confirmados de la lista
-        setMovimientosProcesados((prev) =>
-          prev.filter((m) => !movimientosSeleccionados.some((sel) => sel.movimiento.movimiento === m.movimiento))
-        );
+        // Los movimientos ya fueron actualizados en el loop anterior
+        // No se remueven, se muestran como procesados en la misma pestaña
 
         // Limpiar selecciones
         setSeleccionadosSinMatch(new Set());
         setSociosAsignadosSinMatch(new Map());
 
-        // Actualizar estadísticas
-        actualizarEstadisticas(
-          movimientosProcesados.filter((m) => 
-            !movimientosSeleccionados.some((sel) => sel.movimiento.movimiento === m.movimiento)
-          )
-        );
+        // Actualizar estadísticas con los movimientos actualizados
+        setMovimientosProcesados((prev) => {
+          actualizarEstadisticas(prev);
+          return prev;
+        });
       } else {
         setError(`No se pudo confirmar ningún pago. ${errores[0]?.error || ''}`);
       }
@@ -623,7 +759,9 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
     (m) => m.match.nivel === 'C' || m.match.nivel === 'D' || m.match.nivel === 'E'
   );
   const movimientosSinMatch = movimientosProcesados.filter(
-    (m) => m.match.nivel === 'F' && m.estado !== 'ya_registrado'
+    (m) => (m.match.nivel === 'F' || m.match.nivel === 'M') && m.estado !== 'ya_registrado'
+    // Incluye movimientos sin match (F) y movimientos asignados manualmente (M) que aún no están procesados
+    // Los procesados se muestran pero con estado diferente
   );
   const movimientosDuplicados = movimientosProcesados.filter(
     (m) => m.estado === 'ya_registrado' || 
@@ -725,6 +863,194 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
             </div>
           </div>
         )}
+
+        {/* Información sobre Niveles de Confianza */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+          <button
+            onClick={() => setMostrarInfoConfianza(!mostrarInfoConfianza)}
+            className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <h2 className="text-lg font-semibold text-gray-900">
+                ¿Cómo funciona el sistema de niveles de confianza?
+              </h2>
+            </div>
+            <svg
+              className={`w-5 h-5 text-gray-500 transition-transform ${mostrarInfoConfianza ? 'transform rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          
+          {mostrarInfoConfianza && (
+            <div className="px-6 py-4 border-t border-gray-200">
+              <div className="space-y-6">
+                <div>
+                  <p className="text-gray-700 mb-4">
+                    El sistema utiliza un algoritmo de matching jerárquico que evalúa los movimientos bancarios 
+                    en 6 niveles diferentes, desde el más confiable hasta el menos confiable. Cada nivel tiene 
+                    un porcentaje de confianza asociado que indica qué tan seguro es el match encontrado.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-green-900 mb-1">Nivel A - Match Exacto por CUIT/CUIL</h3>
+                        <p className="text-sm text-green-800 mb-2">
+                          <span className="font-semibold">Confianza: 100%</span>
+                        </p>
+                        <p className="text-sm text-green-700">
+                          El sistema encuentra una coincidencia exacta del CUIT/CUIL del movimiento con el 
+                          CUIT/CUIL registrado del socio. Es el nivel más confiable ya que el CUIT/CUIL es 
+                          un identificador único e irrepetible.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-green-900 mb-1">Nivel B - Match Exacto por DNI</h3>
+                        <p className="text-sm text-green-800 mb-2">
+                          <span className="font-semibold">Confianza: 95%</span>
+                        </p>
+                        <p className="text-sm text-green-700">
+                          El sistema encuentra una coincidencia exacta del DNI del movimiento con el DNI 
+                          registrado del socio. Además, valida que el nombre tenga al menos 50% de similitud 
+                          para evitar errores. Es muy confiable, pero ligeramente menos que el CUIT/CUIL 
+                          porque el DNI puede tener variaciones en el formato.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-yellow-900 mb-1">Nivel C - Match Bidireccional por CUIL Generado</h3>
+                        <p className="text-sm text-yellow-800 mb-2">
+                          <span className="font-semibold">Confianza: 98%</span>
+                        </p>
+                        <p className="text-sm text-yellow-700">
+                          El sistema genera un CUIL desde el DNI del movimiento y lo compara con el CUIT/CUIL 
+                          del socio, validando que ambos coincidan bidireccionalmente. Es muy confiable porque 
+                          valida la relación matemática entre DNI y CUIL.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-yellow-900 mb-1">Nivel D - Match por Nombre Completo Normalizado</h3>
+                        <p className="text-sm text-yellow-800 mb-2">
+                          <span className="font-semibold">Confianza: 85% (variable según similitud)</span>
+                        </p>
+                        <p className="text-sm text-yellow-700">
+                          El sistema compara el nombre completo (apellido + nombre) del movimiento con el 
+                          nombre completo del socio, después de normalizar ambos textos (eliminar acentos, 
+                          convertir a mayúsculas, etc.). Requiere al menos 85% de similitud. El porcentaje 
+                          de confianza es igual al porcentaje de similitud calculado.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-yellow-900 mb-1">Nivel E - Match por Similitud Levenshtein</h3>
+                        <p className="text-sm text-yellow-800 mb-2">
+                          <span className="font-semibold">Confianza: 60-80% (variable según similitud)</span>
+                        </p>
+                        <p className="text-sm text-yellow-700">
+                          El sistema utiliza el algoritmo de distancia de Levenshtein para comparar el apellido 
+                          del movimiento con el apellido del socio. Este algoritmo calcula el número mínimo de 
+                          cambios necesarios para convertir una cadena en otra. Requiere entre 60% y 80% de 
+                          similitud. El porcentaje de confianza es igual al porcentaje de similitud calculado.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-yellow-900 mb-1">Nivel E.5 - Match por Keywords Relacionadas</h3>
+                        <p className="text-sm text-yellow-800 mb-2">
+                          <span className="font-semibold">Confianza: 75%</span>
+                        </p>
+                        <p className="text-sm text-yellow-700">
+                          El sistema busca en la tabla de keywords relacionadas (palabras clave asociadas a socios) 
+                          usando el CUIT/CUIL del movimiento. Si encuentra una keyword relacionada, asigna el match 
+                          con 75% de confianza. Este nivel es útil cuando un socio ha sido identificado previamente 
+                          con un CUIT/CUIL diferente al registrado.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-red-900 mb-1">Nivel F - Sin Match</h3>
+                        <p className="text-sm text-red-800 mb-2">
+                          <span className="font-semibold">Confianza: 0%</span>
+                        </p>
+                        <p className="text-sm text-red-700">
+                          El sistema no encontró ninguna coincidencia con ningún socio en la base de datos. 
+                          Estos movimientos requieren asignación manual de socio.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-blue-900 mb-1">Nivel M - Asignación Manual</h3>
+                        <p className="text-sm text-blue-800 mb-2">
+                          <span className="font-semibold">Confianza: 100%</span>
+                        </p>
+                        <p className="text-sm text-blue-700">
+                          Movimientos que fueron asignados manualmente por un usuario. Se considera 100% de 
+                          confianza porque la asignación fue realizada por una persona que verificó la información.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <h4 className="font-semibold text-gray-900 mb-2">¿Cómo se calcula el porcentaje de confianza?</h4>
+                  <p className="text-sm text-gray-700 mb-2">
+                    El porcentaje de confianza se calcula de diferentes formas según el nivel:
+                  </p>
+                  <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
+                    <li><strong>Niveles A, B, C, E.5 y M:</strong> Tienen un porcentaje fijo predefinido (100%, 95%, 98%, 75% y 100% respectivamente).</li>
+                    <li><strong>Niveles D y E:</strong> El porcentaje es igual al porcentaje de similitud calculado entre los textos comparados. Por ejemplo, si el nombre tiene 87% de similitud, la confianza será 87%.</li>
+                    <li><strong>Nivel F:</strong> Siempre tiene 0% de confianza porque no se encontró match.</li>
+                  </ul>
+                  <p className="text-sm text-gray-700 mt-3">
+                    <strong>Nota importante:</strong> Los movimientos con niveles A y B se consideran "Match Exacto" 
+                    y pueden confirmarse automáticamente. Los niveles C, D y E se consideran "Match Probable" y 
+                    requieren revisión antes de confirmar. Los niveles F requieren asignación manual.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Tabs */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
@@ -1102,112 +1428,21 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
           estado={movimientoSeleccionado.estado}
           pagoAsociado={movimientoSeleccionado.pagoAsociado}
           modoAsignacion={movimientoSeleccionado?.match.nivel === 'F' && movimientoSeleccionado.estado !== 'ya_registrado'}
-          guardarKeywords={movimientoSeleccionado?.match.nivel === 'F' && movimientoSeleccionado.estado !== 'ya_registrado'}
-          onAsignarSocio={(socioId) => {
+          guardarKeywords={false} // NO guardar keywords al asignar/cambiar, solo al confirmar en lote
+          onAsignarSocio={async (socioId) => {
             if (!movimientoSeleccionado) return;
             
-            const indexSinMatch = movimientosSinMatch.findIndex(
-              m => m.movimiento === movimientoSeleccionado.movimiento
-            );
-            
-            if (indexSinMatch !== -1) {
-              // Actualizar el match con el socio seleccionado
-              const movimientosActualizados = movimientosProcesados.map(m => {
-                if (m.movimiento === movimientoSeleccionado.movimiento) {
-                  return {
-                    ...m,
-                    match: {
-                      ...m.match,
-                      socio_id: socioId,
-                      nivel: 'E' as NivelMatch,
-                      porcentaje_confianza: 100,
-                      razon: 'Asignación manual'
-                    }
-                  };
-                }
-                return m;
-              });
-              setMovimientosProcesados(movimientosActualizados);
-              
-              // Actualizar el socio asignado para este índice
-              setSociosAsignadosSinMatch(prev => {
-                const nuevo = new Map(prev);
-                nuevo.set(indexSinMatch, socioId);
-                return nuevo;
-              });
-              
-              // Si no está seleccionado, seleccionarlo automáticamente
-              if (!seleccionadosSinMatch.has(indexSinMatch)) {
-                setSeleccionadosSinMatch(prev => {
-                  const nuevo = new Set(prev);
-                  nuevo.add(indexSinMatch);
-                  return nuevo;
-                });
-              }
-            }
+            // Función unificada para actualizar socio (igual para sin match, probable y exacto)
+            await actualizarSocioEnMovimiento(socioId, 'M', 'Asignación manual');
             
             setModalDetalleAbierto(false);
             setMovimientoSeleccionado(null);
           }}
-          onCambiarSocio={(socioId) => {
+          onCambiarSocio={async (socioId) => {
             if (!movimientoSeleccionado) return;
             
-            // Buscar en match exacto
-            const indexExacto = movimientosMatchExacto.findIndex(
-              m => m.movimiento === movimientoSeleccionado.movimiento
-            );
-            
-            if (indexExacto !== -1) {
-              // Actualizar el socio cambiado para este índice
-              setSociosCambiadosExactos(prev => {
-                const nuevo = new Map(prev);
-                nuevo.set(indexExacto, socioId);
-                return nuevo;
-              });
-              
-              // Si no está seleccionado, seleccionarlo automáticamente
-              if (!seleccionadosExactos.has(indexExacto)) {
-                setSeleccionadosExactos(prev => {
-                  const nuevo = new Set(prev);
-                  nuevo.add(indexExacto);
-                  return nuevo;
-                });
-              }
-            } else {
-              // Buscar en match probable
-              const indexProbable = movimientosMatchProbable.findIndex(
-                m => m.movimiento === movimientoSeleccionado.movimiento
-              );
-              
-              if (indexProbable !== -1) {
-                // Actualizar el match con el socio seleccionado
-                const movimientosActualizados = movimientosProcesados.map(m => {
-                  if (m.movimiento === movimientoSeleccionado.movimiento) {
-                    return {
-                      ...m,
-                      match: {
-                        ...m.match,
-                        socio_id: socioId,
-                        nivel: 'E' as const,
-                        porcentaje_confianza: 100,
-                        razon: 'Socio cambiado manualmente'
-                      }
-                    };
-                  }
-                  return m;
-                });
-                setMovimientosProcesados(movimientosActualizados);
-                
-                // Actualizar selección
-                if (!seleccionados.has(indexProbable)) {
-                  setSeleccionados(prev => {
-                    const nuevo = new Set(prev);
-                    nuevo.add(indexProbable);
-                    return nuevo;
-                  });
-                }
-              }
-            }
+            // Función unificada para actualizar socio (igual para sin match, probable y exacto)
+            await actualizarSocioEnMovimiento(socioId, 'E', 'Socio cambiado manualmente');
             
             setModalDetalleAbierto(false);
             setMovimientoSeleccionado(null);
@@ -1262,6 +1497,10 @@ function MovimientosTable({
 }: MovimientosTableProps) {
   const toggleSeleccion = (index: number) => {
     if (!setSeleccionados || !seleccionados) return;
+    // No permitir seleccionar movimientos procesados
+    const movimiento = movimientos[index];
+    if (movimiento?.estado === 'procesado') return;
+    
     const nuevo = new Set(seleccionados);
     if (nuevo.has(index)) {
       nuevo.delete(index);
@@ -1297,23 +1536,31 @@ function MovimientosTable({
           </tr>
         </thead>
         <tbody>
-          {movimientos.map((item, index) => (
-            <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
+          {movimientos.map((item, index) => {
+            const estaProcesado = item.estado === 'procesado';
+            return (
+            <tr key={index} className={`border-b border-gray-100 hover:bg-gray-50 ${estaProcesado ? 'bg-green-50' : ''}`}>
               {seleccionables && (
                 <td className="py-3 px-4">
                   <input
                     type="checkbox"
                     checked={seleccionados?.has(index) || false}
                     onChange={() => toggleSeleccion(index)}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    disabled={estaProcesado}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                 </td>
               )}
               <td className="py-3 px-4">{formatDate(item.movimiento.fecha_movimiento)}</td>
               <td className="py-3 px-4">
                 {item.match.nombre_completo ? (
-                  sociosAsignados?.has(index) ? (
-                    <span className="text-yellow-600 font-medium">Socio cambiado</span>
+                  (sociosAsignados?.has(index) || item.match.razon?.includes('cambiado') || item.match.razon?.includes('manual')) ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-900">{item.match.nombre_completo}</span>
+                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                        {item.match.nivel === 'M' ? 'Asignado' : 'Cambiado'}
+                      </span>
+                    </div>
                   ) : (
                     <span>{item.match.nombre_completo}</span>
                   )
@@ -1330,23 +1577,35 @@ function MovimientosTable({
               </td>
               <td className="py-3 px-4 text-right font-medium">{formatCurrency(item.movimiento.monto)}</td>
               <td className="py-3 px-4">
-                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                  item.match.nivel === 'A' || item.match.nivel === 'B' ? 'bg-green-100 text-green-800' :
-                  item.match.nivel === 'C' || item.match.nivel === 'D' ? 'bg-yellow-100 text-yellow-800' :
-                  item.match.nivel === 'E' ? 'bg-orange-100 text-orange-800' :
-                  'bg-gray-100 text-gray-800'
-                }`}>
-                  Nivel {item.match.nivel}
-                </span>
+                <div className="flex flex-col gap-1">
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    item.match.nivel === 'A' || item.match.nivel === 'B' ? 'bg-green-100 text-green-800' :
+                    item.match.nivel === 'C' || item.match.nivel === 'D' ? 'bg-yellow-100 text-yellow-800' :
+                    item.match.nivel === 'E' ? 'bg-orange-100 text-orange-800' :
+                    item.match.nivel === 'M' ? 'bg-blue-100 text-blue-800' :
+                    'bg-gray-100 text-gray-800'
+                  }`}>
+                    Nivel {item.match.nivel}
+                  </span>
+                  {estaProcesado && (
+                    <span className="px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
+                      ✅ Procesado
+                    </span>
+                  )}
+                </div>
               </td>
               <td className="py-3 px-4">{item.match.porcentaje_confianza}%</td>
               <td className="py-3 px-4">
                 <div className="flex gap-2">
-                  {onVerDetalles && (
-                    <button
-                      onClick={() => onVerDetalles(item)}
-                      className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                    >
+                  {estaProcesado ? (
+                    <span className="text-green-600 text-sm font-medium">Pago confirmado</span>
+                  ) : (
+                    <>
+                      {onVerDetalles && (
+                        <button
+                          onClick={() => onVerDetalles(item)}
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                        >
                       Ver detalles
                     </button>
                   )}
@@ -1367,7 +1626,7 @@ function MovimientosTable({
                       ✓ Socio cambiado
                     </span>
                   )}
-                  {onAsignarSocio && (
+                  {onAsignarSocio && !estaProcesado && (
                     <button
                       onClick={() => onAsignarSocio(item, index)}
                       className={`text-sm font-medium ${
@@ -1379,15 +1638,18 @@ function MovimientosTable({
                       {sociosAsignados?.has(index) ? 'Cambiar socio' : 'Asignar socio'}
                     </button>
                   )}
-                  {seleccionables && sociosAsignados?.has(index) && (
+                  {seleccionables && sociosAsignados?.has(index) && !estaProcesado && (
                     <span className="text-xs text-green-600 font-medium ml-2">
                       ✓ Socio asignado
                     </span>
                   )}
+                    </>
+                  )}
                 </div>
               </td>
             </tr>
-          ))}
+          );
+          })}
         </tbody>
       </table>
     </div>
