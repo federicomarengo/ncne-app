@@ -42,3 +42,4 @@ export async function requireAuth() {
   return { error: null, user };
 }
 
+

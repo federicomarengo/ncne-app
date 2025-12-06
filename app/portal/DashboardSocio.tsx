@@ -95,6 +95,50 @@ export default function DashboardSocio({ socio, onLogout }: DashboardSocioProps)
     }
   };
 
+  // Función helper para normalizar teléfono para WhatsApp
+  const normalizarTelefonoWhatsApp = (telefono: string | null | undefined): string | null => {
+    if (!telefono) return null;
+    // Remover todos los caracteres no numéricos
+    const numeros = telefono.replace(/\D/g, '');
+    // Si ya tiene prefijo de país (54), devolverlo
+    if (numeros.startsWith('54')) {
+      return numeros;
+    }
+    // Si empieza con 0, removerlo y agregar prefijo 54
+    if (numeros.startsWith('0')) {
+      return '54' + numeros.substring(1);
+    }
+    // Si tiene 9 dígitos (sin código de área), asumir que es de Argentina y agregar 54
+    if (numeros.length === 9) {
+      return '54' + numeros;
+    }
+    // Si tiene 10 dígitos (con código de área), agregar 54
+    if (numeros.length === 10) {
+      return '54' + numeros;
+    }
+    // Si tiene 11 dígitos (con 0 y código de área), remover 0 y agregar 54
+    if (numeros.length === 11 && numeros.startsWith('0')) {
+      return '54' + numeros.substring(1);
+    }
+    // Devolver tal cual si no coincide con ningún patrón
+    return numeros;
+  };
+
+  // Formatear teléfono para mostrar (con guiones)
+  const formatearTelefono = (telefono: string | null | undefined): string | null => {
+    if (!telefono) return null;
+    const numeros = telefono.replace(/\D/g, '');
+    // Si tiene 10 dígitos (código de área + número), formatear como XXX-XXXXXXX
+    if (numeros.length === 10) {
+      return `${numeros.substring(0, 3)}-${numeros.substring(3)}`;
+    }
+    // Si tiene 9 dígitos, formatear como XXXX-XXXXX
+    if (numeros.length === 9) {
+      return `${numeros.substring(0, 4)}-${numeros.substring(4)}`;
+    }
+    return telefono;
+  };
+
   // Calcular resumen de cuenta
   // Obtener cupones pendientes para mostrar información
   const cuponesPendientes = cupones.filter(c => c.estado === 'pendiente' || c.estado === 'vencido');
@@ -728,55 +772,54 @@ export default function DashboardSocio({ socio, onLogout }: DashboardSocioProps)
           <div className="space-y-4">
             {/* Datos Bancarios */}
             <div className="bg-white rounded-lg p-4 sm:p-5 border border-blue-200 space-y-3">
-              <div>
-                <p className="text-xs sm:text-sm font-medium text-gray-700 mb-1">Banco</p>
-                <p className="text-sm sm:text-base text-gray-900">BANCO SANTANDER RIO (Sucursal Santa Rosa)</p>
-              </div>
+              {configuracion?.banco_nombre && (
+                <div>
+                  <p className="text-xs sm:text-sm font-medium text-gray-700 mb-1">Banco</p>
+                  <p className="text-sm sm:text-base text-gray-900">{configuracion.banco_nombre}</p>
+                </div>
+              )}
               
-              <div>
-                <p className="text-xs sm:text-sm font-medium text-gray-700 mb-1">Cuenta Corriente</p>
-                <p className="text-sm sm:text-base font-semibold text-gray-900">278/5 Sucursal 453</p>
-              </div>
+              {configuracion?.banco_tipo_cuenta && (
+                <div>
+                  <p className="text-xs sm:text-sm font-medium text-gray-700 mb-1">Cuenta Corriente</p>
+                  <p className="text-sm sm:text-base font-semibold text-gray-900">{configuracion.banco_tipo_cuenta}</p>
+                </div>
+              )}
 
               {/* CBU */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs sm:text-sm font-medium text-gray-700">CBU</p>
-                  <button
-                    onClick={() => copiarAlPortapapeles('0720453520000000027854', 'CBU')}
-                    className="px-3 py-1.5 text-xs sm:text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors font-medium flex items-center gap-1"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Copiar
-                  </button>
+              {configuracion?.banco_cbu && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs sm:text-sm font-medium text-gray-700">CBU</p>
+                    <button
+                      onClick={() => copiarAlPortapapeles(configuracion.banco_cbu, 'CBU')}
+                      className="px-3 py-1.5 text-xs sm:text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors font-medium flex items-center gap-1"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      Copiar
+                    </button>
+                  </div>
+                  <p className="text-base sm:text-lg font-mono text-gray-900 break-all bg-gray-50 p-2 rounded">
+                    {configuracion.banco_cbu}
+                  </p>
                 </div>
-                <p className="text-base sm:text-lg font-mono text-gray-900 break-all bg-gray-50 p-2 rounded">
-                  0720453520000000027854
-                </p>
-              </div>
+              )}
 
-              <div>
-                <p className="text-xs sm:text-sm font-medium text-gray-700 mb-1">Nombre de la Cuenta</p>
-                <p className="text-sm sm:text-base font-semibold text-gray-900">NUEVO CLUB NAUTICO EMBALSE</p>
-              </div>
-
-              <div>
-                <p className="text-xs sm:text-sm font-medium text-gray-700 mb-1">CUIT</p>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm sm:text-base font-mono text-gray-900">30708583029</p>
-                  <button
-                    onClick={() => copiarAlPortapapeles('30708583029', 'CUIT')}
-                    className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
-                    title="Copiar CUIT"
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                  </button>
+              {configuracion?.banco_titular && (
+                <div>
+                  <p className="text-xs sm:text-sm font-medium text-gray-700 mb-1">Nombre de la Cuenta</p>
+                  <p className="text-sm sm:text-base font-semibold text-gray-900">{configuracion.banco_titular}</p>
                 </div>
-              </div>
+              )}
+
+              {configuracion?.banco_alias && (
+                <div>
+                  <p className="text-xs sm:text-sm font-medium text-gray-700 mb-1">Alias CBU</p>
+                  <p className="text-sm sm:text-base font-mono text-gray-900">{configuracion.banco_alias}</p>
+                </div>
+              )}
             </div>
 
             {/* Mensaje Importante sobre Comprobante */}
@@ -793,32 +836,44 @@ export default function DashboardSocio({ socio, onLogout }: DashboardSocioProps)
                     Para que se acredite el pago, debe enviar el comprobante del mismo vía:
                   </p>
                   <div className="space-y-2 text-xs sm:text-sm text-yellow-800">
-                    <div className="flex items-center gap-2">
-                      <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                      </svg>
-                      <span className="font-medium">WhatsApp:</span>
-                      <a 
-                        href="https://wa.me/543512350673" 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 underline font-mono"
-                      >
-                        351-2350673
-                      </a>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                      </svg>
-                      <span className="font-medium">Email:</span>
-                      <a 
-                        href="mailto:ingenia.controldeacceso@gmail.com"
-                        className="text-blue-600 hover:text-blue-800 underline break-all"
-                      >
-                        ingenia.controldeacceso@gmail.com
-                      </a>
-                    </div>
+                    {configuracion?.club_telefono1 && (() => {
+                      const telefonoWhatsApp = normalizarTelefonoWhatsApp(configuracion.club_telefono1);
+                      const telefonoFormateado = formatearTelefono(configuracion.club_telefono1);
+                      return (
+                        <div className="flex items-center gap-2">
+                          <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                          </svg>
+                          <span className="font-medium">WhatsApp:</span>
+                          {telefonoWhatsApp ? (
+                            <a 
+                              href={`https://wa.me/${telefonoWhatsApp}`}
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 underline font-mono"
+                            >
+                              {telefonoFormateado || configuracion.club_telefono1}
+                            </a>
+                          ) : (
+                            <span className="font-mono">{telefonoFormateado || configuracion.club_telefono1}</span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    {configuracion?.club_email1 && (
+                      <div className="flex items-center gap-2">
+                        <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                        <span className="font-medium">Email:</span>
+                        <a 
+                          href={`mailto:${configuracion.club_email1}`}
+                          className="text-blue-600 hover:text-blue-800 underline break-all"
+                        >
+                          {configuracion.club_email1}
+                        </a>
+                      </div>
+                    )}
                   </div>
                   <div className="mt-3 pt-3 border-t border-yellow-300">
                     <p className="text-xs sm:text-sm text-yellow-800">

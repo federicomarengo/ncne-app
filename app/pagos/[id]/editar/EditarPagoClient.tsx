@@ -716,3 +716,4 @@ export default function EditarPagoClient({ pago }: EditarPagoClientProps) {
   );
 }
 
+

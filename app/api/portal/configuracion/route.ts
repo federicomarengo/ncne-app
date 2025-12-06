@@ -16,10 +16,10 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createClient();
 
-    // Obtener configuración (solo CBU para mostrar al socio)
+    // Obtener configuración (datos bancarios y contacto para mostrar al socio)
     const { data: config, error } = await supabase
       .from('configuracion')
-      .select('banco_cbu')
+      .select('banco_nombre, banco_cbu, banco_alias, banco_titular, banco_tipo_cuenta, club_nombre, club_telefono1, club_email1')
       .eq('id', 1)
       .single();
 
@@ -40,4 +40,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
 

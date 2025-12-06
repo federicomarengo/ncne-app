@@ -136,3 +136,4 @@ class LogsStorage {
 // Instancia singleton
 export const logsStorage = new LogsStorage();
 
+

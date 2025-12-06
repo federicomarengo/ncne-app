@@ -116,3 +116,4 @@ export function esMatchSuficiente(porcentaje: number, nivel: 'A' | 'B' | 'C' | '
 
 
 
+

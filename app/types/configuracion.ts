@@ -69,3 +69,4 @@ export const CONFIGURACION_DEFAULTS: Omit<Configuracion, 'id' | 'created_at' | '
 
 
 
+

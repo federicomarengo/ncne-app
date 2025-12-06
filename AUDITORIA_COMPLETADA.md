@@ -146,3 +146,4 @@ La auditoría ha identificado y corregido los problemas críticos de seguridad y
 
 Las tareas pendientes son mejoras incrementales que pueden implementarse gradualmente sin afectar la funcionalidad actual.
 
+

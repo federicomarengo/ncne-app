@@ -163,14 +163,15 @@ export function EmailCuponTemplate(datos: DatosEmailCupon): string {
                 </h3>
                 <p style="margin: 0 0 15px 0; color: #78350f; font-size: 14px;"><strong>Para depósitos o transferencias:</strong></p>
                 <div style="background: white; border-radius: 6px; padding: 16px; margin-bottom: 12px;">
-                  <p style="margin: 0 0 8px 0; color: #78350f; font-size: 14px;"><strong>BANCO SANTANDER RIO</strong> (sucursal Santa Rosa)</p>
-                  <p style="margin: 4px 0; color: #78350f; font-size: 14px;">CUENTA CORRIENTE 278/5 SUCURSAL 453</p>
-                  <p style="margin: 12px 0 8px 0; color: #78350f; font-size: 14px;"><strong>CBU:</strong></p>
-                  <div style="background: #f9fafb; border-radius: 6px; padding: 12px; font-family: 'Courier New', monospace; font-size: 18px; color: #111827; font-weight: 600; letter-spacing: 2px; text-align: center; border: 1px solid #e5e7eb;">
-                    0720453520000000027854
-                  </div>
-                  <p style="margin: 12px 0 4px 0; color: #78350f; font-size: 14px;"><strong>NOMBRE:</strong> NUEVO CLUB NAUTICO EMBALSE</p>
-                  <p style="margin: 4px 0 0 0; color: #78350f; font-size: 14px;"><strong>NRO. CUIT:</strong> 30708583029</p>
+                  ${banco.nombre ? `<p style="margin: 0 0 8px 0; color: #78350f; font-size: 14px;"><strong>${banco.nombre}</strong></p>` : ''}
+                  ${banco.tipo_cuenta ? `<p style="margin: 4px 0; color: #78350f; font-size: 14px;">${banco.tipo_cuenta}</p>` : ''}
+                  ${banco.cbu ? `
+                    <p style="margin: 12px 0 8px 0; color: #78350f; font-size: 14px;"><strong>CBU:</strong></p>
+                    <div style="background: #f9fafb; border-radius: 6px; padding: 12px; font-family: 'Courier New', monospace; font-size: 18px; color: #111827; font-weight: 600; letter-spacing: 2px; text-align: center; border: 1px solid #e5e7eb;">
+                      ${banco.cbu}
+                    </div>
+                  ` : ''}
+                  ${banco.titular ? `<p style="margin: 12px 0 4px 0; color: #78350f; font-size: 14px;"><strong>NOMBRE:</strong> ${banco.titular}</p>` : ''}
                 </div>
                 ${banco.alias ? `
                   <p style="margin: 12px 0 8px 0; color: #78350f; font-size: 14px;">
@@ -192,12 +193,37 @@ export function EmailCuponTemplate(datos: DatosEmailCupon): string {
                   Es <strong>IMPRESCINDIBLE</strong>, para que se acredite el pago, que envíen el comprobante del mismo:
                 </p>
                 <div style="background: white; border-radius: 6px; padding: 16px; margin: 12px 0;">
-                  <p style="margin: 0 0 8px 0; color: #7f1d1d; font-size: 14px; line-height: 1.6;">
-                    📱 <strong>Vía WhatsApp:</strong> <a href="https://wa.me/5493512350673" style="color: #0066cc; text-decoration: none; font-weight: 600;">351-2350673</a>
-                  </p>
-                  <p style="margin: 8px 0 0 0; color: #7f1d1d; font-size: 14px; line-height: 1.6;">
-                    ✉️ <strong>Por email:</strong> <a href="mailto:ingenia.controldeacceso@gmail.com" style="color: #0066cc; text-decoration: none; font-weight: 600;">ingenia.controldeacceso@gmail.com</a>
-                  </p>
+                  ${club.telefono ? (() => {
+                    // Normalizar teléfono para WhatsApp (remover caracteres no numéricos y agregar prefijo 54 si no lo tiene)
+                    const numeros = club.telefono.replace(/\D/g, '');
+                    let telefonoWhatsApp = numeros;
+                    if (!numeros.startsWith('54')) {
+                      if (numeros.startsWith('0')) {
+                        telefonoWhatsApp = '54' + numeros.substring(1);
+                      } else if (numeros.length === 9 || numeros.length === 10) {
+                        telefonoWhatsApp = '54' + numeros;
+                      } else if (numeros.length === 11 && numeros.startsWith('0')) {
+                        telefonoWhatsApp = '54' + numeros.substring(1);
+                      }
+                    }
+                    // Formatear teléfono para mostrar
+                    let telefonoFormateado = club.telefono;
+                    if (numeros.length === 10) {
+                      telefonoFormateado = numeros.substring(0, 3) + '-' + numeros.substring(3);
+                    } else if (numeros.length === 9) {
+                      telefonoFormateado = numeros.substring(0, 4) + '-' + numeros.substring(4);
+                    }
+                    return `
+                      <p style="margin: 0 0 8px 0; color: #7f1d1d; font-size: 14px; line-height: 1.6;">
+                        📱 <strong>Vía WhatsApp:</strong> <a href="https://wa.me/${telefonoWhatsApp}" style="color: #0066cc; text-decoration: none; font-weight: 600;">${telefonoFormateado}</a>
+                      </p>
+                    `;
+                  })() : ''}
+                  ${club.email ? `
+                    <p style="margin: ${club.telefono ? '8px' : '0'} 0 0 0; color: #7f1d1d; font-size: 14px; line-height: 1.6;">
+                      ✉️ <strong>Por email:</strong> <a href="mailto:${club.email}" style="color: #0066cc; text-decoration: none; font-weight: 600;">${club.email}</a>
+                    </p>
+                  ` : ''}
                 </div>
                 <div style="background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 6px; padding: 12px; margin: 16px 0;">
                   <p style="margin: 0 0 8px 0; color: #78350f; font-size: 14px; font-weight: 600;">

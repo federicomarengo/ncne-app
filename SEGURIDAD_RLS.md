@@ -79,3 +79,4 @@ Si se implementa RLS, es crítico:
 
 RLS está recomendado pero no implementado actualmente. La aplicación funciona de forma segura sin RLS gracias a las validaciones a nivel de aplicación, pero RLS agregaría una capa adicional de seguridad valiosa.
 
+

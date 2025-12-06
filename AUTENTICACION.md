@@ -169,3 +169,4 @@ USING (true);
 - [ ] Agregar logs de auditoría de autenticación
 - [ ] Implementar sesiones con expiración configurable
 
+

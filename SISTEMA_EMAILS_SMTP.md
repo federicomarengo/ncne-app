@@ -224,3 +224,4 @@ El sistema está completamente implementado y listo para usar. Solo falta:
 3. Configurar tu servidor SMTP
 4. ¡Comenzar a enviar emails!
 
+

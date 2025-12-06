@@ -42,3 +42,4 @@ export default async function EliminarCuponPage({
     return <EliminarCuponClient cupon={cupon} />;
 }
 
+

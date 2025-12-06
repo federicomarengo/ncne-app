@@ -85,3 +85,4 @@ export default async function EditarPagoPage({
   return <EditarPagoClient pago={pago} />;
 }
 
+

@@ -49,3 +49,4 @@ npm test saldoAFavor
 - Cada test es independiente (no hay estado compartido)
 - Los mocks permiten simular cualquier escenario de base de datos
 
+
