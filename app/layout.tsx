@@ -5,6 +5,8 @@ import Sidebar from './components/Sidebar'
 import MainContent from './components/MainContent'
 import GlobalLoading from './components/ui/GlobalLoading'
 import LayoutWrapper from './LayoutWrapper'
+// Validar variables de entorno al inicio
+import './utils/env-validation'
 
 export const metadata: Metadata = {
   title: 'Club Náutico Embalse - Sistema de Gestión',
