@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
+import { requireAuth } from '@/app/utils/auth';
+import { itemCuponCreateSchema, itemCuponUpdateSchema, validateAndParse } from '@/app/utils/validations';
+import { logger } from '@/app/utils/logger';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  
   try {
     const resolvedParams = await Promise.resolve(params);
     const cuponId = parseInt(resolvedParams.id);
@@ -40,7 +46,7 @@ export async function GET(
       .order('id', { ascending: true });
 
     if (error) {
-      console.error('Error al obtener items del cupón:', error);
+      logger.error('Error al obtener items del cupón:', error);
       return NextResponse.json(
         { error: 'Error al obtener items del cupón' },
         { status: 500 }
@@ -49,7 +55,7 @@ export async function GET(
 
     return NextResponse.json({ items: items || [] });
   } catch (error: any) {
-    console.error('Error en API cupones/[id]/items GET:', error);
+    logger.error('Error en API cupones/[id]/items GET:', error);
     return NextResponse.json(
       { error: 'Error al obtener items del cupón' },
       { status: 500 }
@@ -61,6 +67,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  
   try {
     const resolvedParams = await Promise.resolve(params);
     const cuponId = parseInt(resolvedParams.id);
@@ -73,6 +82,16 @@ export async function POST(
     }
 
     const body = await request.json();
+    
+    // Validar datos de entrada
+    const validation = validateAndParse(itemCuponCreateSchema, body);
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: validation.error },
+        { status: 400 }
+      );
+    }
+    
     const supabase = await createClient();
 
     // Verificar que el cupón existe
@@ -89,24 +108,17 @@ export async function POST(
       );
     }
 
-    // Validar datos del item
-    if (!body.descripcion || body.descripcion.trim().length === 0) {
-      return NextResponse.json(
-        { error: 'La descripción es obligatoria' },
-        { status: 400 }
-      );
-    }
-
-    const cantidad = body.cantidad ? parseInt(body.cantidad) : 1;
-    const precioUnitario = body.precio_unitario ? parseFloat(body.precio_unitario) : null;
-    const subtotal = body.subtotal ? parseFloat(body.subtotal) : (precioUnitario ? precioUnitario * cantidad : 0);
+    const validatedBody = validation.data;
+    const cantidad = validatedBody.cantidad;
+    const precioUnitario = validatedBody.precio_unitario;
+    const subtotal = validatedBody.subtotal ?? (precioUnitario ? precioUnitario * cantidad : 0);
 
     // Crear el item
     const { data: nuevoItem, error: insertError } = await supabase
       .from('items_cupon')
       .insert({
         cupon_id: cuponId,
-        descripcion: body.descripcion.trim(),
+        descripcion: validatedBody.descripcion,
         cantidad: cantidad,
         precio_unitario: precioUnitario,
         subtotal: subtotal,
@@ -115,7 +127,7 @@ export async function POST(
       .single();
 
     if (insertError) {
-      console.error('Error al crear item:', insertError);
+      logger.error('Error al crear item:', insertError);
       return NextResponse.json(
         { error: 'Error al crear item' },
         { status: 500 }
@@ -127,7 +139,7 @@ export async function POST(
 
     return NextResponse.json({ item: nuevoItem }, { status: 201 });
   } catch (error: any) {
-    console.error('Error en API cupones/[id]/items POST:', error);
+    logger.error('Error en API cupones/[id]/items POST:', error);
     return NextResponse.json(
       { error: 'Error al crear item' },
       { status: 500 }
@@ -139,6 +151,9 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  
   try {
     const resolvedParams = await Promise.resolve(params);
     const cuponId = parseInt(resolvedParams.id);
@@ -151,20 +166,24 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const supabase = await createClient();
-
-    if (!body.item_id) {
+    
+    // Validar datos de entrada
+    const validation = validateAndParse(itemCuponUpdateSchema, body);
+    if (!validation.success) {
       return NextResponse.json(
-        { error: 'ID de item es obligatorio' },
+        { error: validation.error },
         { status: 400 }
       );
     }
+    
+    const supabase = await createClient();
+    const validatedBody = validation.data;
 
     // Verificar que el item pertenece al cupón
     const { data: itemExistente, error: itemError } = await supabase
       .from('items_cupon')
       .select('id, cupon_id, cantidad, precio_unitario')
-      .eq('id', body.item_id)
+      .eq('id', validatedBody.item_id)
       .eq('cupon_id', cuponId)
       .single();
 
@@ -178,21 +197,15 @@ export async function PUT(
     // Preparar datos de actualización
     const updateData: any = {};
 
-    if (body.descripcion !== undefined) {
-      if (body.descripcion.trim().length === 0) {
-        return NextResponse.json(
-          { error: 'La descripción no puede estar vacía' },
-          { status: 400 }
-        );
-      }
-      updateData.descripcion = body.descripcion.trim();
+    if (validatedBody.descripcion !== undefined) {
+      updateData.descripcion = validatedBody.descripcion;
     }
-    if (body.cantidad !== undefined) updateData.cantidad = parseInt(body.cantidad);
-    if (body.precio_unitario !== undefined) {
-      updateData.precio_unitario = body.precio_unitario ? parseFloat(body.precio_unitario) : null;
+    if (validatedBody.cantidad !== undefined) updateData.cantidad = validatedBody.cantidad;
+    if (validatedBody.precio_unitario !== undefined) {
+      updateData.precio_unitario = validatedBody.precio_unitario;
     }
-    if (body.subtotal !== undefined) {
-      updateData.subtotal = parseFloat(body.subtotal);
+    if (validatedBody.subtotal !== undefined) {
+      updateData.subtotal = validatedBody.subtotal;
     } else if (updateData.cantidad !== undefined || updateData.precio_unitario !== undefined) {
       // Recalcular subtotal si cambió cantidad o precio
       const cantidad = updateData.cantidad !== undefined ? updateData.cantidad : itemExistente.cantidad;
@@ -204,12 +217,12 @@ export async function PUT(
     const { data: itemActualizado, error: updateError } = await supabase
       .from('items_cupon')
       .update(updateData)
-      .eq('id', body.item_id)
+      .eq('id', validatedBody.item_id)
       .select()
       .single();
 
     if (updateError) {
-      console.error('Error al actualizar item:', updateError);
+      logger.error('Error al actualizar item:', updateError);
       return NextResponse.json(
         { error: 'Error al actualizar item' },
         { status: 500 }
@@ -221,7 +234,7 @@ export async function PUT(
 
     return NextResponse.json({ item: itemActualizado });
   } catch (error: any) {
-    console.error('Error en API cupones/[id]/items PUT:', error);
+    logger.error('Error en API cupones/[id]/items PUT:', error);
     return NextResponse.json(
       { error: 'Error al actualizar item' },
       { status: 500 }
@@ -233,6 +246,9 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  
   try {
     const resolvedParams = await Promise.resolve(params);
     const cuponId = parseInt(resolvedParams.id);
@@ -278,7 +294,7 @@ export async function DELETE(
       .eq('id', parseInt(itemId));
 
     if (deleteError) {
-      console.error('Error al eliminar item:', deleteError);
+      logger.error('Error al eliminar item:', deleteError);
       return NextResponse.json(
         { error: 'Error al eliminar item' },
         { status: 500 }
@@ -290,7 +306,7 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    console.error('Error en API cupones/[id]/items DELETE:', error);
+    logger.error('Error en API cupones/[id]/items DELETE:', error);
     return NextResponse.json(
       { error: 'Error al eliminar item' },
       { status: 500 }
@@ -307,7 +323,7 @@ async function recalcularTotalCupon(supabase: any, cuponId: number) {
     .eq('cupon_id', cuponId);
 
   if (itemsError) {
-    console.error('Error al obtener items para recalcular:', itemsError);
+    logger.error('Error al obtener items para recalcular:', itemsError);
     return;
   }
 

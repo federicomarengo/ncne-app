@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
+import { requireAuth } from '@/app/utils/auth';
+import { keywordDeleteSchema, validateAndParse } from '@/app/utils/validations';
+import { logger } from '@/app/utils/logger';
 
 /**
  * GET /api/socios/[id]/keywords
@@ -9,6 +12,9 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  
   try {
     const supabase = await createClient();
     const resolvedParams = await Promise.resolve(params);
@@ -29,7 +35,7 @@ export async function GET(
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('Error al obtener keywords:', error);
+      logger.error('Error al obtener keywords:', error);
       return NextResponse.json(
         { error: 'Error al obtener keywords' },
         { status: 500 }
@@ -38,7 +44,7 @@ export async function GET(
 
     return NextResponse.json({ keywords: keywords || [] });
   } catch (error: any) {
-    console.error('Error en GET keywords:', error);
+    logger.error('Error en GET keywords:', error);
     return NextResponse.json(
       { error: 'Error interno del servidor' },
       { status: 500 }
@@ -54,6 +60,9 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  
   try {
     const supabase = await createClient();
     const resolvedParams = await Promise.resolve(params);
@@ -66,9 +75,12 @@ export async function DELETE(
       );
     }
 
-    // Obtener parámetro opcional tipo de la query string
+    // Obtener y validar parámetro opcional tipo de la query string
     const { searchParams } = new URL(request.url);
-    const tipo = searchParams.get('tipo');
+    const tipoParam = searchParams.get('tipo');
+    
+    const validation = validateAndParse(keywordDeleteSchema, { tipo: tipoParam || undefined });
+    const tipo = validation.success ? validation.data.tipo : undefined;
 
     // Construir query base
     let query = supabase
@@ -77,14 +89,14 @@ export async function DELETE(
       .eq('socio_id', socioId);
 
     // Si se especifica tipo, filtrar por tipo (solo 'cuit' ahora)
-    if (tipo && tipo === 'cuit') {
+    if (tipo) {
       query = query.eq('tipo', tipo);
     }
 
     const { error } = await query;
 
     if (error) {
-      console.error('Error al eliminar keywords:', error);
+      logger.error('Error al eliminar keywords:', error);
       return NextResponse.json(
         { error: 'Error al eliminar keywords' },
         { status: 500 }
@@ -98,7 +110,7 @@ export async function DELETE(
         : 'Todas las keywords eliminadas correctamente'
     });
   } catch (error: any) {
-    console.error('Error en DELETE keywords:', error);
+    logger.error('Error en DELETE keywords:', error);
     return NextResponse.json(
       { error: 'Error interno del servidor' },
       { status: 500 }

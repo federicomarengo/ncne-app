@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSidebar } from '../contexts/SidebarContext';
+import { logger } from '@/app/utils/logger';
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -38,7 +39,7 @@ export default function Header() {
           setUser(data.user);
         }
       } catch (error) {
-        console.error('Error al cargar usuario:', error);
+        logger.error('Error al cargar usuario:', error);
       }
     };
 
@@ -59,10 +60,10 @@ export default function Header() {
         router.push('/login');
         router.refresh();
       } else {
-        console.error('Error al cerrar sesión');
+        logger.error('Error al cerrar sesión');
       }
     } catch (error) {
-      console.error('Error al cerrar sesión:', error);
+      logger.error('Error al cerrar sesión:', error);
     } finally {
       setIsLoggingOut(false);
       setShowUserMenu(false);

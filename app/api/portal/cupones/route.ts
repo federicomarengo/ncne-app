@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getPortalSocioId } from '@/utils/portal/session';
+import { logger } from '@/app/utils/logger';
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
       .order('fecha_vencimiento', { ascending: true });
 
     if (error) {
-      console.error('Error al obtener cupones:', error);
+      logger.error('Error al obtener cupones:', error);
       return NextResponse.json(
         { error: 'Error al obtener cupones' },
         { status: 500 }
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ cupones: cupones || [] });
   } catch (error: any) {
-    console.error('Error en API portal/cupones:', error);
+    logger.error('Error en API portal/cupones:', error);
     return NextResponse.json(
       { error: 'Error al obtener cupones' },
       { status: 500 }

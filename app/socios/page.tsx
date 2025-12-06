@@ -3,6 +3,7 @@ import SociosTable from '../components/SociosTable'
 import { Socio } from '../types/socios'
 import { Suspense } from 'react'
 import { TableSkeleton } from '../components/ui/SkeletonLoader'
+import { logger } from '@/app/utils/logger';
 
 // Revalidar cada 30 segundos
 export const revalidate = 30;
@@ -23,7 +24,7 @@ async function getSocios(limit: number = 100, offset: number = 0): Promise<{ dat
     .range(offset, offset + limit - 1)
 
   if (error) {
-    console.error('Error fetching socios:', error)
+    logger.error('Error fetching socios:', error)
     return { data: [], total: 0 }
   }
 

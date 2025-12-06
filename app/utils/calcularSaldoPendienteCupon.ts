@@ -1,3 +1,4 @@
+import { logger } from '@/app/utils/logger';
 /**
  * Calcula el saldo pendiente real de un cupón
  * 
@@ -20,7 +21,7 @@ export async function calcularSaldoPendienteCupon(
       .single();
 
     if (errorCupon) {
-      console.error('Error al obtener cupón:', errorCupon);
+      logger.error('Error al obtener cupón:', errorCupon);
       return 0;
     }
 
@@ -37,7 +38,7 @@ export async function calcularSaldoPendienteCupon(
       .eq('cupon_id', cuponId);
 
     if (errorPagos) {
-      console.error('Error al obtener pagos del cupón:', errorPagos);
+      logger.error('Error al obtener pagos del cupón:', errorPagos);
       // Si hay error, asumir que no hay pagos aplicados
       return montoTotal;
     }
@@ -54,7 +55,7 @@ export async function calcularSaldoPendienteCupon(
     // 5. Retornar siempre >= 0 (no puede ser negativo)
     return Math.max(0, saldoPendiente);
   } catch (error) {
-    console.error('Error al calcular saldo pendiente del cupón:', error);
+    logger.error('Error al calcular saldo pendiente del cupón:', error);
     return 0;
   }
 }

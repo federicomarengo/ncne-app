@@ -5,6 +5,7 @@ import Modal from '../ui/Modal';
 import { Embarcacion, TipoEmbarcacion, TIPOS_EMBARCACION } from '@/app/types/embarcaciones';
 import { createClient } from '@/utils/supabase/client';
 import { Socio, getNombreCompleto } from '@/app/types/socios';
+import { logger } from '@/app/utils/logger';
 
 interface EditarEmbarcacionModalProps {
   isOpen: boolean;
@@ -93,12 +94,12 @@ export default function EditarEmbarcacionModal({
         .order('apellido', { ascending: true });
 
       if (error) {
-        console.error('Error al cargar socios:', error);
+        logger.error('Error al cargar socios:', error);
       } else {
         setSocios((data as Socio[]) || []);
       }
     } catch (err) {
-      console.error('Error al cargar socios:', err);
+      logger.error('Error al cargar socios:', err);
     } finally {
       setLoadingSocios(false);
     }
@@ -141,13 +142,13 @@ export default function EditarEmbarcacionModal({
         .limit(1);
 
       if (cuponesError) {
-        console.error('Error al validar cupones:', cuponesError);
+        logger.error('Error al validar cupones:', cuponesError);
         setHayCuponesPendientes(false);
       } else {
         setHayCuponesPendientes(cupones && cupones.length > 0);
       }
     } catch (err) {
-      console.error('Error al validar cupones:', err);
+      logger.error('Error al validar cupones:', err);
       setHayCuponesPendientes(false);
     } finally {
       setValidandoCupones(false);
@@ -199,7 +200,7 @@ export default function EditarEmbarcacionModal({
           .limit(1);
 
         if (checkError) {
-          console.error('Error al verificar matrícula:', checkError);
+          logger.error('Error al verificar matrícula:', checkError);
         } else if (existing && existing.length > 0) {
           throw new Error('Ya existe otra embarcación con esta matrícula');
         }

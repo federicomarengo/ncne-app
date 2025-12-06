@@ -6,6 +6,7 @@ import { Socio } from '@/app/types/socios';
 import { Embarcacion, TIPOS_EMBARCACION } from '@/app/types/embarcaciones';
 import { formatDate } from '@/app/utils/formatDate';
 import { createClient } from '@/utils/supabase/client';
+import { logger } from '@/app/utils/logger';
 
 interface DetalleSocioModalProps {
   isOpen: boolean;
@@ -51,7 +52,7 @@ export default function DetalleSocioModal({
         .in('estado', ['pendiente', 'vencido']);
 
       if (errorCupones) {
-        console.error('Error al cargar cupones:', errorCupones);
+        logger.error('Error al cargar cupones:', errorCupones);
       }
 
       // Obtener total pagado
@@ -61,7 +62,7 @@ export default function DetalleSocioModal({
         .eq('socio_id', socio.id);
 
       if (errorPagos) {
-        console.error('Error al cargar pagos:', errorPagos);
+        logger.error('Error al cargar pagos:', errorPagos);
       }
 
       const deudaTotal = cuponesPendientes?.reduce((sum, c) => sum + (parseFloat(c.monto_total) || 0), 0) || 0;
@@ -74,7 +75,7 @@ export default function DetalleSocioModal({
         itemsPendientes,
       });
     } catch (err) {
-      console.error('Error al cargar resumen de cuenta:', err);
+      logger.error('Error al cargar resumen de cuenta:', err);
     }
   };
 
@@ -158,7 +159,7 @@ export default function DetalleSocioModal({
 
       setHistorialMovimientos(movimientos);
     } catch (err) {
-      console.error('Error al cargar historial:', err);
+      logger.error('Error al cargar historial:', err);
     } finally {
       setLoading(false);
     }
@@ -177,12 +178,12 @@ export default function DetalleSocioModal({
         .order('nombre', { ascending: true });
 
       if (error) {
-        console.error('Error al cargar embarcaciones:', error);
+        logger.error('Error al cargar embarcaciones:', error);
       } else {
         setEmbarcaciones((data as Embarcacion[]) || []);
       }
     } catch (err) {
-      console.error('Error al cargar embarcaciones:', err);
+      logger.error('Error al cargar embarcaciones:', err);
     } finally {
       setLoadingEmbarcaciones(false);
     }

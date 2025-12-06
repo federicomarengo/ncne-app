@@ -1,5 +1,6 @@
 import { createClient } from '@/utils/supabase/server';
 import { NextResponse } from 'next/server';
+import { logger } from '@/app/utils/logger';
 
 /**
  * Verifica si el usuario está autenticado
@@ -16,7 +17,7 @@ export async function getAuthenticatedUser() {
     
     return user;
   } catch (error) {
-    console.error('Error verificando autenticación:', error);
+    logger.error('Error verificando autenticación:', error);
     return null;
   }
 }

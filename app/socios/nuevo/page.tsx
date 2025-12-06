@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { EstadoSocio } from '@/app/types/socios';
 import { createClient } from '@/utils/supabase/client';
+import { logger } from '@/app/utils/logger';
 
 export default function NuevoSocioPage() {
     const router = useRouter();
@@ -41,7 +42,7 @@ export default function NuevoSocioPage() {
                 .limit(1);
 
             if (error) {
-                console.error('Error al obtener número de socio:', error);
+                logger.error('Error al obtener número de socio:', error);
                 setNumeroSocio(1);
                 return;
             }
@@ -52,7 +53,7 @@ export default function NuevoSocioPage() {
                 setNumeroSocio(1);
             }
         } catch (err) {
-            console.error('Error al obtener número de socio:', err);
+            logger.error('Error al obtener número de socio:', err);
             setNumeroSocio(1);
         }
     };
@@ -92,13 +93,13 @@ export default function NuevoSocioPage() {
                 .limit(1);
 
             if (error) {
-                console.error('Error al validar DNI:', error);
+                logger.error('Error al validar DNI:', error);
                 return false;
             }
 
             return !data || data.length === 0;
         } catch (err) {
-            console.error('Error al validar DNI:', err);
+            logger.error('Error al validar DNI:', err);
             return false;
         }
     };
@@ -114,13 +115,13 @@ export default function NuevoSocioPage() {
                 .limit(1);
 
             if (error) {
-                console.error('Error al validar email:', error);
+                logger.error('Error al validar email:', error);
                 return false;
             }
 
             return !data || data.length === 0;
         } catch (err) {
-            console.error('Error al validar email:', err);
+            logger.error('Error al validar email:', err);
             return false;
         }
     };

@@ -24,7 +24,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('sidebarCollapsed', isCollapsed.toString());
   }, [isCollapsed]);
 
-  const sidebarWidth = isCollapsed ? 80 : 224; // 20 (5rem) cuando colapsado, 56 (14rem) cuando expandido
+  const sidebarWidth = isCollapsed ? 80 : 256; // w-20 (5rem = 80px) cuando colapsado, w-64 (16rem = 256px) cuando expandido
 
   return (
     <SidebarContext.Provider value={{ isCollapsed, setIsCollapsed, sidebarWidth }}>

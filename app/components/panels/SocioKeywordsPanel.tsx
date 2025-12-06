@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { SocioKeyword } from '@/app/types/socios';
+import { logger } from '@/app/utils/logger';
 
 interface SocioKeywordsPanelProps {
   socioId: number;
@@ -34,7 +35,7 @@ export default function SocioKeywordsPanel({ socioId }: SocioKeywordsPanelProps)
       const data = await response.json();
       setKeywords(data.keywords || []);
     } catch (err: any) {
-      console.error('Error al cargar keywords:', err);
+      logger.error('Error al cargar keywords:', err);
       setError('Error al cargar keywords');
     } finally {
       setLoading(false);
@@ -62,7 +63,7 @@ export default function SocioKeywordsPanel({ socioId }: SocioKeywordsPanelProps)
       setSuccess('Keywords eliminadas correctamente');
       setKeywords([]);
     } catch (err: any) {
-      console.error('Error al eliminar keywords:', err);
+      logger.error('Error al eliminar keywords:', err);
       setError('Error al eliminar keywords');
     } finally {
       setEliminando(false);
@@ -90,7 +91,7 @@ export default function SocioKeywordsPanel({ socioId }: SocioKeywordsPanelProps)
       setKeywords(prev => prev.filter(k => k.id !== keywordId));
       setSuccess('Keyword eliminada correctamente');
     } catch (err: any) {
-      console.error('Error al eliminar keyword:', err);
+      logger.error('Error al eliminar keyword:', err);
       setError('Error al eliminar keyword');
     }
   };

@@ -12,6 +12,7 @@
 
 import { calcularSaldoPendienteCupon } from './calcularSaldoPendienteCupon';
 import { obtenerSaldoAFavor, manejarSaldoAFavor } from './manejarSaldoAFavor';
+import { logger } from '@/app/utils/logger';
 
 export interface ResultadoAplicacionSaldoFavor {
   montoAplicado: number;
@@ -68,7 +69,7 @@ export async function aplicarSaldoAFavorACupon(
       .single();
 
     if (errorPago) {
-      console.error('Error al crear pago desde saldo a favor:', errorPago);
+      logger.error('Error al crear pago desde saldo a favor:', errorPago);
       throw new Error(`Error al crear pago desde saldo a favor: ${errorPago.message}`);
     }
 
@@ -83,7 +84,7 @@ export async function aplicarSaldoAFavorACupon(
         });
 
       if (errorPagoCupon) {
-        console.error('Error al asociar pago al cupón:', errorPagoCupon);
+        logger.error('Error al asociar pago al cupón:', errorPagoCupon);
         throw new Error(`Error al asociar pago al cupón: ${errorPagoCupon.message}`);
       }
 
@@ -98,7 +99,7 @@ export async function aplicarSaldoAFavorACupon(
           .eq('id', cuponId);
 
         if (errorUpdate) {
-          console.error('Error al actualizar estado del cupón:', errorUpdate);
+          logger.error('Error al actualizar estado del cupón:', errorUpdate);
           // No lanzar error, solo loggear
         }
       }
@@ -136,7 +137,7 @@ export async function aplicarSaldoAFavorACupon(
       cuponQuedoPagado: cuponQuedoPagado,
     };
   } catch (error: any) {
-    console.error('Error en aplicarSaldoAFavorACupon:', error);
+    logger.error('Error en aplicarSaldoAFavorACupon:', error);
     throw error;
   }
 }

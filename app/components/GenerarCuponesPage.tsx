@@ -9,6 +9,7 @@ import { createClient } from '@/utils/supabase/client';
 import VistaPreviaCuponesTable from './VistaPreviaCuponesTable';
 import ProgressBar from '@/app/components/ProgressBar';
 import { aplicarSaldoAFavorACupon } from '@/app/utils/aplicarSaldoAFavorACupon';
+import { logger } from '@/app/utils/logger';
 
 export default function GenerarCuponesPage() {
   const router = useRouter();
@@ -69,7 +70,7 @@ export default function GenerarCuponesPage() {
         .maybeSingle();
 
       if (error) {
-        console.error('Error al cargar configuración:', error);
+        logger.error('Error al cargar configuración:', error);
         setConfiguracion({
           cuota_social_base: 28000,
           amarra_valor_por_pie: 2800,
@@ -98,7 +99,7 @@ export default function GenerarCuponesPage() {
         });
       }
     } catch (err) {
-      console.error('Error al cargar configuración:', err);
+      logger.error('Error al cargar configuración:', err);
       setConfiguracion({
         cuota_social_base: 28000,
         amarra_valor_por_pie: 2800,
@@ -210,23 +211,8 @@ export default function GenerarCuponesPage() {
       const total = cuponesAGenerar.length;
       setProgresoGeneracion({ current: 0, total, mensaje: 'Iniciando generación...' });
 
-      // Pre-cargar todas las cuotas de planes del mes ANTES del loop
-      const fechaInicioCuotas = new Date(anio, mes - 1, 1);
-      const fechaFinCuotas = new Date(anio, mes, 0, 23, 59, 59);
-      
-      const { data: cuotasPlanesCargadas } = await supabase
-        .from('cuotas_plan')
-        .select(`
-          *,
-          plan:planes_financiacion (socio_id)
-        `)
-        .gte('fecha_vencimiento', fechaInicioCuotas.toISOString().split('T')[0])
-        .lte('fecha_vencimiento', fechaFinCuotas.toISOString().split('T')[0])
-        .in('estado', ['pendiente', 'vencida']);
-
       // Arrays para acumular actualizaciones batch
       const visitasParaActualizar: Array<{id: number; cupon_id: number; fechaEmision: string}> = [];
-      const cuotasPlanesParaActualizar: Array<{id: number; cupon_id: number}> = [];
 
       // Generar cupones para cada socio seleccionado
       for (let i = 0; i < cuponesAGenerar.length; i++) {
@@ -263,7 +249,7 @@ export default function GenerarCuponesPage() {
           .single();
 
         if (errorCupon) {
-          console.error(`Error al crear cupón para socio ${item.socio.numero_socio}:`, errorCupon);
+          logger.error(`Error al crear cupón para socio ${item.socio.numero_socio}:`, errorCupon);
           continue;
         }
 
@@ -276,7 +262,7 @@ export default function GenerarCuponesPage() {
           );
           
           if (resultadoSaldo.montoAplicado > 0) {
-            console.log(`Saldo a favor aplicado: $${resultadoSaldo.montoAplicado.toLocaleString('es-AR')} al cupón ${numeroCupon}`);
+            logger.log(`Saldo a favor aplicado: $${resultadoSaldo.montoAplicado.toLocaleString('es-AR')} al cupón ${numeroCupon}`);
             
             // Si el cupón quedó completamente pagado, actualizar el estado
             if (resultadoSaldo.cuponQuedoPagado) {
@@ -291,7 +277,7 @@ export default function GenerarCuponesPage() {
           }
         } catch (errorSaldo: any) {
           // No fallar la generación si hay error con saldo a favor, solo loggear
-          console.error(`Error al aplicar saldo a favor al cupón ${numeroCupon}:`, errorSaldo);
+          logger.error(`Error al aplicar saldo a favor al cupón ${numeroCupon}:`, errorSaldo);
         }
 
         // Crear items del cupón
@@ -336,7 +322,7 @@ export default function GenerarCuponesPage() {
                 fechaEmision: fechaEmision,
               });
             }
-          } else if (itemPrevia.tipo === 'interes' || itemPrevia.tipo === 'cuota_plan') {
+          } else if (itemPrevia.tipo === 'interes') {
             items.push({
               cupon_id: cupon.id,
               descripcion: itemPrevia.descripcion,
@@ -352,22 +338,9 @@ export default function GenerarCuponesPage() {
           await supabase.from('items_cupon').insert(items);
         }
 
-        // Acumular actualizaciones de cuotas de planes para batch update
-        if (cuotasPlanesCargadas) {
-          const cuotasPlanesSocio = cuotasPlanesCargadas.filter(
-            (c: any) => c.plan?.socio_id === item.socio.id
-          );
-          for (const cuota of cuotasPlanesSocio) {
-            cuotasPlanesParaActualizar.push({
-              id: cuota.id,
-              cupon_id: cupon.id,
-            });
-          }
-        }
-
         // TODO: Enviar email si está habilitado
         if (enviarEmails) {
-          console.log(`Enviar email a ${item.socio.email}`);
+          logger.log(`Enviar email a ${item.socio.email}`);
         }
       }
 
@@ -389,26 +362,6 @@ export default function GenerarCuponesPage() {
                 fecha_generacion_cupon: v.fechaEmision,
               })
               .eq('id', v.id)
-          )
-        );
-      }
-
-      // Ejecutar batch updates para cuotas de planes
-      if (cuotasPlanesParaActualizar.length > 0) {
-        setProgresoGeneracion({
-          current: total,
-          total,
-          mensaje: `Actualizando ${cuotasPlanesParaActualizar.length} cuotas de planes...`
-        });
-        
-        await Promise.all(
-          cuotasPlanesParaActualizar.map(c => 
-            supabase
-              .from('cuotas_plan')
-              .update({
-                cupon_id: c.cupon_id,
-              })
-              .eq('id', c.id)
           )
         );
       }

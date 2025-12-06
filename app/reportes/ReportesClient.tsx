@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import { formatDate } from '@/app/utils/formatDate';
+import { logger } from '@/app/utils/logger';
 
 interface SocioDeuda {
     id: number;
@@ -38,12 +39,6 @@ interface SocioSinEmbarcacion {
     nombre: string;
 }
 
-interface EmbarcacionSinDueño {
-    id: number;
-    nombre: string;
-    matricula: string | null;
-    tipo: string | null;
-}
 
 export default function ReportesClient() {
     const router = useRouter();
@@ -62,31 +57,9 @@ export default function ReportesClient() {
         porcentaje: number;
     } | null>(null);
     const [sociosSinEmbarcaciones, setSociosSinEmbarcaciones] = useState<SocioSinEmbarcacion[]>([]);
-    const [embarcacionesSinDueño, setEmbarcacionesSinDueño] = useState<EmbarcacionSinDueño[]>([]);
 
-    useEffect(() => {
-        cargarReportes();
-    }, []);
-
-    const cargarReportes = async () => {
-        setLoading(true);
-        try {
-            await Promise.all([
-                cargarSociosDeuda(),
-                cargarCuponesVencidos(),
-                cargarIngresosMensuales(),
-                cargarComparacionAnio(),
-                cargarSociosSinEmbarcaciones(),
-                cargarEmbarcacionesSinDueño(),
-            ]);
-        } catch (err) {
-            console.error('Error al cargar reportes:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const cargarSociosDeuda = async () => {
+    // Memoizar funciones de carga para evitar recrearlas en cada render
+    const cargarSociosDeuda = useCallback(async () => {
         try {
             const supabase = createClient();
             
@@ -107,7 +80,7 @@ export default function ReportesClient() {
                 .eq('estado', 'pendiente');
 
             if (error) {
-                console.error('Error al cargar cupones:', error);
+                logger.error('Error al cargar cupones:', error);
                 return;
             }
 
@@ -154,11 +127,11 @@ export default function ReportesClient() {
 
             setSociosDeuda(socios);
         } catch (err) {
-            console.error('Error al cargar socios con deuda:', err);
+            logger.error('Error al cargar socios con deuda:', err);
         }
-    };
+    }, []);
 
-    const cargarCuponesVencidos = async () => {
+    const cargarCuponesVencidos = useCallback(async () => {
         try {
             const supabase = createClient();
             const hoy = new Date();
@@ -182,7 +155,7 @@ export default function ReportesClient() {
                 .limit(20);
 
             if (error) {
-                console.error('Error al cargar cupones vencidos:', error);
+                logger.error('Error al cargar cupones vencidos:', error);
                 return;
             }
 
@@ -205,11 +178,11 @@ export default function ReportesClient() {
 
             setCuponesVencidos(cuponesVencidos);
         } catch (err) {
-            console.error('Error al cargar cupones vencidos:', err);
+            logger.error('Error al cargar cupones vencidos:', err);
         }
-    };
+    }, []);
 
-    const cargarIngresosMensuales = async () => {
+    const cargarIngresosMensuales = useCallback(async () => {
         try {
             const supabase = createClient();
             const hoy = new Date();
@@ -224,7 +197,7 @@ export default function ReportesClient() {
                 .lte('fecha_pago', hoy.toISOString().split('T')[0]);
 
             if (error) {
-                console.error('Error al cargar pagos:', error);
+                logger.error('Error al cargar pagos:', error);
                 return;
             }
 
@@ -263,11 +236,11 @@ export default function ReportesClient() {
 
             setIngresosMensuales(meses);
         } catch (err) {
-            console.error('Error al cargar ingresos mensuales:', err);
+            logger.error('Error al cargar ingresos mensuales:', err);
         }
-    };
+    }, []);
 
-    const cargarComparacionAnio = async () => {
+    const cargarComparacionAnio = useCallback(async () => {
         try {
             const supabase = createClient();
             const hoy = new Date();
@@ -312,11 +285,11 @@ export default function ReportesClient() {
                 porcentaje,
             });
         } catch (err) {
-            console.error('Error al cargar comparación:', err);
+            logger.error('Error al cargar comparación:', err);
         }
-    };
+    }, []);
 
-    const cargarSociosSinEmbarcaciones = async () => {
+    const cargarSociosSinEmbarcaciones = useCallback(async () => {
         try {
             const supabase = createClient();
             
@@ -327,7 +300,7 @@ export default function ReportesClient() {
                 .eq('estado', 'activo');
 
             if (errorSocios) {
-                console.error('Error al cargar socios:', errorSocios);
+                logger.error('Error al cargar socios:', errorSocios);
                 return;
             }
 
@@ -337,7 +310,7 @@ export default function ReportesClient() {
                 .select('socio_id');
 
             if (errorEmbarcaciones) {
-                console.error('Error al cargar embarcaciones:', errorEmbarcaciones);
+                logger.error('Error al cargar embarcaciones:', errorEmbarcaciones);
                 return;
             }
 
@@ -365,57 +338,10 @@ export default function ReportesClient() {
 
             setSociosSinEmbarcaciones(sociosSinEmbarc);
         } catch (err) {
-            console.error('Error al cargar socios sin embarcaciones:', err);
+            logger.error('Error al cargar socios sin embarcaciones:', err);
         }
-    };
+    }, []);
 
-    const cargarEmbarcacionesSinDueño = async () => {
-        try {
-            const supabase = createClient();
-            
-            // Obtener todas las embarcaciones con su relación a socios
-            const { data: embarcaciones, error } = await supabase
-                .from('embarcaciones')
-                .select(`
-                    id,
-                    nombre,
-                    matricula,
-                    tipo,
-                    socio_id,
-                    socio:socios (
-                        id
-                    )
-                `);
-
-            if (error) {
-                console.error('Error al cargar embarcaciones:', error);
-                return;
-            }
-
-            // Filtrar embarcaciones sin dueño (socio_id es null o el socio no existe)
-            const embarcacionesSinDueño: EmbarcacionSinDueño[] = (embarcaciones || [])
-                .filter((emb: any) => {
-                    // Sin socio_id o el socio no existe (la relación es null o array vacío)
-                    return !emb.socio_id || 
-                           !emb.socio || 
-                           (Array.isArray(emb.socio) && emb.socio.length === 0);
-                })
-                .map((emb: any) => ({
-                    id: emb.id,
-                    nombre: emb.nombre || 'Sin nombre',
-                    matricula: emb.matricula,
-                    tipo: emb.tipo,
-                }))
-                .sort((a, b) => {
-                    // Ordenar por nombre (ascendente)
-                    return a.nombre.localeCompare(b.nombre);
-                });
-
-            setEmbarcacionesSinDueño(embarcacionesSinDueño);
-        } catch (err) {
-            console.error('Error al cargar embarcaciones sin dueño:', err);
-        }
-    };
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('es-AR', {
@@ -680,45 +606,6 @@ export default function ReportesClient() {
                         )}
                     </div>
 
-                    {/* Widget: Embarcaciones sin Dueño */}
-                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="p-2 bg-cyan-100 rounded-lg">
-                                <svg className="w-6 h-6 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                                </svg>
-                            </div>
-                            <h2 className="text-xl font-semibold text-gray-900">Embarcaciones sin Dueño</h2>
-                        </div>
-                        
-                        {embarcacionesSinDueño.length === 0 ? (
-                            <p className="text-sm text-gray-500 text-center py-4">Todas las embarcaciones tienen dueño asignado</p>
-                        ) : (
-                            <div className="space-y-2 max-h-96 overflow-y-auto">
-                                {embarcacionesSinDueño.map((embarcacion) => (
-                                    <div
-                                        key={embarcacion.id}
-                                        onClick={() => router.push(`/embarcaciones/${embarcacion.id}`)}
-                                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 cursor-pointer transition-colors border border-gray-200"
-                                    >
-                                        <div className="flex-1">
-                                            <p className="font-medium text-gray-900">
-                                                {embarcacion.nombre}
-                                            </p>
-                                            <div className="flex gap-2 mt-1">
-                                                {embarcacion.matricula && (
-                                                    <p className="text-xs text-gray-500">Matrícula: {embarcacion.matricula}</p>
-                                                )}
-                                                {embarcacion.tipo && (
-                                                    <p className="text-xs text-gray-500">Tipo: {embarcacion.tipo}</p>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
                 </div>
             </div>
         </div>

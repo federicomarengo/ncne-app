@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getPortalSocioId } from '@/utils/portal/session';
+import { logger } from '@/app/utils/logger';
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
       .limit(50);
 
     if (error) {
-      console.error('Error al obtener pagos:', error);
+      logger.error('Error al obtener pagos:', error);
       return NextResponse.json(
         { error: 'Error al obtener pagos' },
         { status: 500 }
@@ -33,7 +34,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ pagos: pagos || [] });
   } catch (error: any) {
-    console.error('Error en API portal/pagos:', error);
+    logger.error('Error en API portal/pagos:', error);
     return NextResponse.json(
       { error: 'Error al obtener pagos' },
       { status: 500 }

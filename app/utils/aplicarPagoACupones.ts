@@ -20,6 +20,7 @@
 
 import { calcularSaldoPendienteCupon } from './calcularSaldoPendienteCupon';
 import { manejarSaldoAFavor } from './manejarSaldoAFavor';
+import { logger } from '@/app/utils/logger';
 
 export interface ResultadoAplicacionPago {
   cuponesAplicados: number[];
@@ -43,7 +44,7 @@ export async function aplicarPagoACupones(
     .order('fecha_vencimiento', { ascending: true }); // Más antiguos primero
 
   if (errorCupones) {
-    console.error('Error al cargar cupones pendientes:', errorCupones);
+    logger.error('Error al cargar cupones pendientes:', errorCupones);
     throw new Error(`Error al cargar cupones pendientes: ${errorCupones.message}`);
   }
 
@@ -100,7 +101,7 @@ export async function aplicarPagoACupones(
       .insert(relacionesPagoCupon);
 
     if (errorPagoCupon) {
-      console.error('Error al asociar cupones:', errorPagoCupon);
+      logger.error('Error al asociar cupones:', errorPagoCupon);
       throw new Error(`Error al asociar cupones: ${errorPagoCupon.message}`);
     }
   }
@@ -116,7 +117,7 @@ export async function aplicarPagoACupones(
       .in('id', cuponesAMarcarComoPagados);
 
     if (errorUpdate) {
-      console.error('Error al actualizar cupones:', errorUpdate);
+      logger.error('Error al actualizar cupones:', errorUpdate);
       // No lanzar error, solo loggear (ya se crearon las relaciones)
     }
   }

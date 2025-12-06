@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import SidePanel from '../ui/SidePanel';
 import { Socio, getNombreCompleto } from '@/app/types/socios';
 import { createClient } from '@/utils/supabase/client';
+import { logger } from '@/app/utils/logger';
 
 interface CargarVisitaPanelProps {
   isOpen: boolean;
@@ -67,12 +68,12 @@ export default function CargarVisitaPanel({
         .order('apellido', { ascending: true });
 
       if (error) {
-        console.error('Error al cargar socios:', error);
+        logger.error('Error al cargar socios:', error);
       } else {
         setSocios((data as Socio[]) || []);
       }
     } catch (err) {
-      console.error('Error al cargar socios:', err);
+      logger.error('Error al cargar socios:', err);
     } finally {
       setLoadingSocios(false);
     }
@@ -88,7 +89,7 @@ export default function CargarVisitaPanel({
         .maybeSingle();
 
       if (error) {
-        console.error('Error al cargar costo de visita:', error);
+        logger.error('Error al cargar costo de visita:', error);
         setCostoUnitario(4200);
       } else if (data?.costo_visita) {
         setCostoUnitario(parseFloat(data.costo_visita.toString()));
@@ -96,7 +97,7 @@ export default function CargarVisitaPanel({
         setCostoUnitario(4200);
       }
     } catch (err) {
-      console.error('Error al cargar costo de visita:', err);
+      logger.error('Error al cargar costo de visita:', err);
       setCostoUnitario(4200);
     }
   };
@@ -116,7 +117,7 @@ export default function CargarVisitaPanel({
         .lte('fecha_visita', ultimoDiaMes.toISOString().split('T')[0]);
 
       if (error) {
-        console.error('Error al cargar resumen del mes:', error);
+        logger.error('Error al cargar resumen del mes:', error);
       } else {
         const totalVisitas = visitas?.length || 0;
         const totalAcumulado = visitas?.reduce((sum, v) => sum + parseFloat(v.monto_total.toString()), 0) || 0;
@@ -131,7 +132,7 @@ export default function CargarVisitaPanel({
         });
       }
     } catch (err) {
-      console.error('Error al cargar resumen del mes:', err);
+      logger.error('Error al cargar resumen del mes:', err);
     }
   };
 

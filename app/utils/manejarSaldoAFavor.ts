@@ -1,3 +1,4 @@
+import { logger } from '@/app/utils/logger';
 /**
  * Maneja el saldo a favor de un socio
  * 
@@ -28,7 +29,7 @@ export async function manejarSaldoAFavor(
 
     if (errorBusqueda && errorBusqueda.code !== 'PGRST116') {
       // PGRST116 es "no rows returned", que es válido si no existe registro
-      console.error('Error al buscar saldo a favor:', errorBusqueda);
+      logger.error('Error al buscar saldo a favor:', errorBusqueda);
       throw new Error(`Error al buscar saldo a favor: ${errorBusqueda.message}`);
     }
 
@@ -45,7 +46,7 @@ export async function manejarSaldoAFavor(
         .eq('id', saldoExistente.id);
 
       if (errorUpdate) {
-        console.error('Error al actualizar saldo a favor:', errorUpdate);
+        logger.error('Error al actualizar saldo a favor:', errorUpdate);
         throw new Error(`Error al actualizar saldo a favor: ${errorUpdate.message}`);
       }
     } else {
@@ -60,12 +61,12 @@ export async function manejarSaldoAFavor(
         });
 
       if (errorInsert) {
-        console.error('Error al crear saldo a favor:', errorInsert);
+        logger.error('Error al crear saldo a favor:', errorInsert);
         throw new Error(`Error al crear saldo a favor: ${errorInsert.message}`);
       }
     }
   } catch (error: any) {
-    console.error('Error en manejarSaldoAFavor:', error);
+    logger.error('Error en manejarSaldoAFavor:', error);
     throw error;
   }
 }
@@ -89,7 +90,7 @@ export async function obtenerSaldoAFavor(
       .maybeSingle();
 
     if (error && error.code !== 'PGRST116') {
-      console.error('Error al obtener saldo a favor:', error);
+      logger.error('Error al obtener saldo a favor:', error);
       return 0;
     }
 
@@ -99,7 +100,7 @@ export async function obtenerSaldoAFavor(
 
     return parseFloat(saldoFavor.monto.toString());
   } catch (error) {
-    console.error('Error al obtener saldo a favor:', error);
+    logger.error('Error al obtener saldo a favor:', error);
     return 0;
   }
 }

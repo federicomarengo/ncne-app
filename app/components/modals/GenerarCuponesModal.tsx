@@ -7,6 +7,7 @@ import { Embarcacion } from '@/app/types/embarcaciones';
 import { Visita } from '@/app/types/visitas';
 import { createClient } from '@/utils/supabase/client';
 import ProgressBar from '@/app/components/ProgressBar';
+import { logger } from '@/app/utils/logger';
 
 interface GenerarCuponesModalProps {
   isOpen: boolean;
@@ -46,7 +47,7 @@ interface CuponVencido {
 }
 
 interface ItemPrevia {
-  tipo: 'cuota_social' | 'amarra' | 'visita' | 'interes' | 'muelle_seco' | 'rampa' | 'cuota_plan';
+  tipo: 'cuota_social' | 'amarra' | 'visita' | 'interes' | 'muelle_seco' | 'rampa';
   descripcion: string;
   monto: number;
 }
@@ -63,7 +64,6 @@ export default function GenerarCuponesModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [vistaPrevia, setVistaPrevia] = useState<VistaPreviaCupon[]>([]);
-  const [cuotasPlanesCargadas, setCuotasPlanesCargadas] = useState<any[]>([]);
   const [mostrarVistaPrevia, setMostrarVistaPrevia] = useState(false);
   const [configuracion, setConfiguracion] = useState<Configuracion | null>(null);
   const [generando, setGenerando] = useState(false);
@@ -119,7 +119,7 @@ export default function GenerarCuponesModal({
         .maybeSingle();
 
       if (error) {
-        console.error('Error al cargar configuración:', error);
+        logger.error('Error al cargar configuración:', error);
         // Valores por defecto según esquema SQL
         setConfiguracion({
           cuota_social_base: 28000,
@@ -150,7 +150,7 @@ export default function GenerarCuponesModal({
         });
       }
     } catch (err) {
-      console.error('Error al cargar configuración:', err);
+      logger.error('Error al cargar configuración:', err);
       setConfiguracion({
         cuota_social_base: 28000,
         amarra_valor_por_pie: 2800,
@@ -210,7 +210,7 @@ export default function GenerarCuponesModal({
         .select('*');
 
       if (errorEmbarcaciones) {
-        console.error('Error al cargar embarcaciones:', errorEmbarcaciones);
+        logger.error('Error al cargar embarcaciones:', errorEmbarcaciones);
       }
 
       // Obtener visitas pendientes del mes
@@ -225,7 +225,7 @@ export default function GenerarCuponesModal({
         .lte('fecha_visita', fechaFin.toISOString().split('T')[0]);
 
       if (errorVisitas) {
-        console.error('Error al cargar visitas:', errorVisitas);
+        logger.error('Error al cargar visitas:', errorVisitas);
       }
 
       // Obtener cupones pendientes o vencidos cuya fecha de vencimiento ya pasó para calcular intereses
@@ -236,32 +236,8 @@ export default function GenerarCuponesModal({
         .in('estado', ['pendiente', 'vencido'])
         .lt('fecha_vencimiento', fechaActualStr);
 
-      // Obtener cuotas de planes que vencen en el mes
-      const fechaInicioCuotas = new Date(anio, mes - 1, 1);
-      const fechaFinCuotas = new Date(anio, mes, 0, 23, 59, 59);
-
-      const { data: cuotasPlanes, error: errorCuotasPlanes } = await supabase
-        .from('cuotas_plan')
-        .select(`
-          *,
-          plan:planes_financiacion (
-            concepto_financiado,
-            socio_id
-          )
-        `)
-        .gte('fecha_vencimiento', fechaInicioCuotas.toISOString().split('T')[0])
-        .lte('fecha_vencimiento', fechaFinCuotas.toISOString().split('T')[0])
-        .in('estado', ['pendiente', 'vencida']);
-      
-      // Guardar cuotas para usar en confirmación
-      setCuotasPlanesCargadas(cuotasPlanes || []);
-
-      if (errorCuotasPlanes) {
-        console.error('Error al cargar cuotas de planes:', errorCuotasPlanes);
-      }
-
       if (errorCuponesVencidos) {
-        console.error('Error al cargar cupones vencidos:', errorCuponesVencidos);
+        logger.error('Error al cargar cupones vencidos:', errorCuponesVencidos);
       }
 
 
@@ -291,7 +267,7 @@ export default function GenerarCuponesModal({
           montoAmarra += costoAmarra;
           itemsPrevia.push({
             tipo: 'amarra',
-            descripcion: `${obtenerDescripcionAmarra(embarcacion, configuracion)} - ${formatCurrency(costoAmarra)}`,
+            descripcion: obtenerDescripcionAmarra(embarcacion, configuracion),
             monto: costoAmarra,
           });
         }
@@ -312,46 +288,8 @@ export default function GenerarCuponesModal({
           });
         }
 
-        // Cuotas de planes de financiación que vencen en el mes
-        const cuotasPlanesSocio = (cuotasPlanes || []).filter(
-          (c: any) => c.plan?.socio_id === socio.id
-        );
-        let montoCuotasPlanes = 0;
-
-        for (const cuota of cuotasPlanesSocio) {
-          const montoCuota = parseFloat(cuota.monto?.toString() || '0');
-          const fechaVencimientoCuota = new Date(cuota.fecha_vencimiento);
-          const concepto = cuota.plan?.concepto_financiado || 'Plan de Financiación';
-          const numeroCuota = cuota.numero_cuota;
-          const totalCuotas = cuota.plan?.cantidad_cuotas || 1;
-
-          // Calcular interés si la fecha de vencimiento ya pasó (sin días de gracia para cuotas de planes)
-          let interesCuota = 0;
-          const diasMoraCuota = Math.floor(
-            (fechaActual.getTime() - fechaVencimientoCuota.getTime()) / (1000 * 60 * 60 * 24)
-          );
-          if (diasMoraCuota > 0) {
-            const interesDiario = (montoCuota * configuracion.tasa_interes_mora) / 30;
-            interesCuota = interesDiario * diasMoraCuota;
-          }
-
-          const montoTotalCuota = montoCuota + interesCuota;
-          montoCuotasPlanes += montoTotalCuota;
-
-          if (interesCuota > 0) {
-            itemsPrevia.push({
-              tipo: 'cuota_plan',
-              descripcion: `Cuota ${numeroCuota}/${totalCuotas} - ${concepto} - ${formatCurrency(montoCuota)} + Interés ${formatCurrency(interesCuota)}`,
-              monto: montoTotalCuota,
-            });
-          } else {
-            itemsPrevia.push({
-              tipo: 'cuota_plan',
-              descripcion: `Cuota ${numeroCuota}/${totalCuotas} - ${concepto} - ${formatCurrency(montoCuota)}`,
-              monto: montoCuota,
-            });
-          }
-        }
+        // Cuotas de planes de financiación - FUNCIONALIDAD REMOVIDA
+        const montoCuotasPlanes = 0;
 
         // Intereses por deuda vencida (uno por cada cupón vencido)
         const cuponesVencidosSocio = (cuponesVencidos || []).filter(
@@ -432,7 +370,6 @@ export default function GenerarCuponesModal({
 
       // Arrays para acumular actualizaciones batch
       const visitasParaActualizar: Array<{id: number; cupon_id: number; fechaEmision: string}> = [];
-      const cuotasPlanesParaActualizar: Array<{id: number; cupon_id: number}> = [];
 
       // Generar cupones para cada socio
       for (let i = 0; i < vistaPrevia.length; i++) {
@@ -470,7 +407,7 @@ export default function GenerarCuponesModal({
           .single();
 
         if (errorCupon) {
-          console.error(`Error al crear cupón para socio ${item.socio.numero_socio}:`, errorCupon);
+          logger.error(`Error al crear cupón para socio ${item.socio.numero_socio}:`, errorCupon);
           continue;
         }
 
@@ -528,15 +465,6 @@ export default function GenerarCuponesModal({
               precio_unitario: itemPrevia.monto,
               subtotal: itemPrevia.monto,
             });
-          } else if (itemPrevia.tipo === 'cuota_plan') {
-            // Extraer monto de la descripción o usar el monto directamente
-            items.push({
-              cupon_id: cupon.id,
-              descripcion: itemPrevia.descripcion,
-              cantidad: 1,
-              precio_unitario: itemPrevia.monto,
-              subtotal: itemPrevia.monto,
-            });
           }
         }
 
@@ -545,21 +473,11 @@ export default function GenerarCuponesModal({
           await supabase.from('items_cupon').insert(items);
         }
 
-        // Acumular actualizaciones de cuotas de planes para batch update
-        const cuotasPlanesSocio = cuotasPlanesCargadas.filter(
-          (c: any) => c.plan?.socio_id === item.socio.id
-        );
-        for (const cuota of cuotasPlanesSocio) {
-          cuotasPlanesParaActualizar.push({
-            id: cuota.id,
-            cupon_id: cupon.id,
-          });
-        }
 
         // TODO: Enviar email si está habilitado
         if (enviarEmails) {
           // Implementar envío de email
-          console.log(`Enviar email a ${item.socio.email}`);
+          logger.log(`Enviar email a ${item.socio.email}`);
         }
         
         // Permitir renderizado cada N elementos
@@ -586,26 +504,6 @@ export default function GenerarCuponesModal({
                 fecha_generacion_cupon: v.fechaEmision,
               })
               .eq('id', v.id)
-          )
-        );
-      }
-
-      // Ejecutar batch updates para cuotas de planes
-      if (cuotasPlanesParaActualizar.length > 0) {
-        setProgresoGeneracion({
-          current: total,
-          total,
-          mensaje: `Actualizando ${cuotasPlanesParaActualizar.length} cuotas de planes...`
-        });
-        
-        await Promise.all(
-          cuotasPlanesParaActualizar.map(c => 
-            supabase
-              .from('cuotas_plan')
-              .update({
-                cupon_id: c.cupon_id,
-              })
-              .eq('id', c.id)
           )
         );
       }
@@ -866,9 +764,6 @@ export default function GenerarCuponesModal({
                       Visitas
                     </th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                      Cuotas Planes
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
                       Intereses
                     </th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
@@ -932,9 +827,6 @@ export default function GenerarCuponesModal({
                                 ({item.visitas.length} visita{item.visitas.length > 1 ? 's' : ''})
                               </span>
                             )}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
-                            {formatCurrency(item.montoCuotasPlanes)}
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-900 text-right">
                             {formatCurrency(item.montoIntereses)}

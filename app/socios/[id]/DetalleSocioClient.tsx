@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Socio } from '@/app/types/socios';
 import { Embarcacion, TIPOS_EMBARCACION } from '@/app/types/embarcaciones';
@@ -10,6 +10,7 @@ import { ItemCupon } from '@/app/types/cupones';
 import { getMetodoPagoLabel } from '@/app/types/pagos';
 import SocioKeywordsPanel from '@/app/components/panels/SocioKeywordsPanel';
 import { generarHistorialCronologico, MovimientoCronologico } from '@/app/utils/generarHistorialCronologico';
+import { logger } from '@/app/utils/logger';
 
 interface DetalleSocioClientProps {
     socio: Socio;
@@ -21,8 +22,11 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
         saldo: 0,
         cuponesPendientes: 0,
     });
+    const [cuponesPorVencer, setCuponesPorVencer] = useState<any[]>([]);
     const [historialMovimientos, setHistorialMovimientos] = useState<MovimientoCronologico[]>([]);
     const [filtroHistorial, setFiltroHistorial] = useState<'todos' | 'cupones' | 'pagos'>('todos');
+    const [filtroAnio, setFiltroAnio] = useState<string>('todos'); // 'todos' o año específico (ej: '2025')
+    const [aniosDisponibles, setAniosDisponibles] = useState<number[]>([]);
     const [embarcaciones, setEmbarcaciones] = useState<Embarcacion[]>([]);
     const [loading, setLoading] = useState(false);
     const [loadingEmbarcaciones, setLoadingEmbarcaciones] = useState(false);
@@ -38,16 +42,8 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
     // Estado para información del cupón colapsada
     const [infoCuponColapsada, setInfoCuponColapsada] = useState<Map<number, boolean>>(new Map());
 
-    useEffect(() => {
-        // Cargar todas las secciones en paralelo para mejor rendimiento
-        Promise.all([
-            cargarResumenCuenta(),
-            cargarHistorialMovimientos(),
-            cargarEmbarcaciones(),
-        ]);
-    }, [socio]);
-
-    const cargarResumenCuenta = async () => {
+    // Memoizar funciones de carga para evitar recrearlas en cada render
+    const cargarResumenCuentaMemo = useCallback(async () => {
         try {
             const supabase = createClient();
 
@@ -58,7 +54,7 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                 .eq('socio_id', socio.id);
 
             if (errorTodosCupones) {
-                console.error('Error al cargar todos los cupones:', errorTodosCupones);
+                logger.error('Error al cargar todos los cupones:', errorTodosCupones);
             }
 
             // Obtener cupones pendientes para mostrar información (cantidad y próximo vencimiento)
@@ -70,40 +66,25 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                 .order('fecha_vencimiento', { ascending: true });
 
             if (errorCupones) {
-                console.error('Error al cargar cupones pendientes:', errorCupones);
+                logger.error('Error al cargar cupones pendientes:', errorCupones);
             }
 
-            // Obtener total pagado
+            // Obtener TODOS los pagos del socio (incluyendo saldo a favor)
             const { data: pagos, error: errorPagos } = await supabase
                 .from('pagos')
-                .select('id, monto')
+                .select('monto')
                 .eq('socio_id', socio.id);
 
             if (errorPagos) {
-                console.error('Error al cargar pagos:', errorPagos);
+                logger.error('Error al cargar pagos:', errorPagos);
             }
 
-            // Calcular saldo: total cupones - total pagos aplicados
-            // Saldo positivo = debe dinero, Saldo negativo = saldo a favor
+            // Calcular saldo: total pagado - total cupones
+            // Negativo = debe dinero, Positivo = saldo a favor
             const totalCupones = todosLosCupones?.reduce((sum, c) => sum + (parseFloat(c.monto_total.toString()) || 0), 0) || 0;
+            const totalPagado = pagos?.reduce((sum, p) => sum + parseFloat(p.monto.toString()), 0) || 0;
             
-            // Obtener todos los pagos_cupones para calcular total aplicado
-            const pagosIds = pagos?.map(p => p.id) || [];
-            let totalAplicado = 0;
-            
-            if (pagosIds.length > 0) {
-                const { data: pagosCupones } = await supabase
-                    .from('pagos_cupones')
-                    .select('monto_aplicado')
-                    .in('pago_id', pagosIds);
-                
-                totalAplicado = pagosCupones?.reduce(
-                    (sum, pc) => sum + parseFloat(pc.monto_aplicado.toString()),
-                    0
-                ) || 0;
-            }
-            
-            const saldo = totalAplicado - totalCupones; // Negativo = debe, Positivo = a favor
+            const saldo = totalPagado - totalCupones; // Negativo = debe, Positivo = a favor
             const cuponesPendientesCount = cuponesPendientes?.length || 0;
 
             setResumenCuenta({
@@ -111,11 +92,11 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                 cuponesPendientes: cuponesPendientesCount,
             });
         } catch (err) {
-            console.error('Error al cargar resumen de cuenta:', err);
+            logger.error('Error al cargar resumen de cuenta:', err);
         }
-    };
+    }, [socio.id]);
 
-    const cargarHistorialMovimientos = async () => {
+    const cargarHistorialMovimientosMemo = useCallback(async () => {
         setLoading(true);
         try {
             const supabase = createClient();
@@ -123,18 +104,27 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
             // Usar la nueva función que genera historial cronológico con saldo acumulado
             const historial = await generarHistorialCronologico(socio.id, supabase);
             
+            // Extraer años disponibles del historial
+            const anios = new Set<number>();
+            historial.forEach(mov => {
+                const fecha = new Date(mov.fecha);
+                anios.add(fecha.getFullYear());
+            });
+            const aniosOrdenados = Array.from(anios).sort((a, b) => b - a); // Más reciente primero
+            setAniosDisponibles(aniosOrdenados);
+            
             // Mantener orden cronológico (más antiguos primero) para la tabla tipo extracto bancario
             // El historial ya viene ordenado cronológicamente de generarHistorialCronologico
             
             setHistorialMovimientos(historial);
         } catch (err) {
-            console.error('Error al cargar historial:', err);
+            logger.error('Error al cargar historial:', err);
         } finally {
             setLoading(false);
         }
-    };
+    }, [socio.id]);
 
-    const cargarEmbarcaciones = async () => {
+    const cargarEmbarcacionesMemo = useCallback(async () => {
         setLoadingEmbarcaciones(true);
         try {
             const supabase = createClient();
@@ -145,33 +135,86 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                 .order('nombre', { ascending: true });
 
             if (error) {
-                console.error('Error al cargar embarcaciones:', error);
+                logger.error('Error al cargar embarcaciones:', error);
             } else {
                 setEmbarcaciones((data as Embarcacion[]) || []);
             }
         } catch (err) {
-            console.error('Error al cargar embarcaciones:', err);
+            logger.error('Error al cargar embarcaciones:', err);
         } finally {
             setLoadingEmbarcaciones(false);
         }
-    };
+    }, [socio.id]);
+
+    const cargarCuponesPorVencerMemo = useCallback(async () => {
+        try {
+            const supabase = createClient();
+            const hoy = new Date();
+            hoy.setHours(0, 0, 0, 0);
+            const en30Dias = new Date();
+            en30Dias.setDate(en30Dias.getDate() + 30);
+            en30Dias.setHours(23, 59, 59, 999);
+
+            const { data, error } = await supabase
+                .from('cupones')
+                .select('*')
+                .eq('socio_id', socio.id)
+                .eq('estado', 'pendiente')
+                .gte('fecha_vencimiento', hoy.toISOString().split('T')[0])
+                .lte('fecha_vencimiento', en30Dias.toISOString().split('T')[0])
+                .order('fecha_vencimiento', { ascending: true })
+                .limit(5);
+
+            if (error) {
+                logger.error('Error al cargar cupones por vencer:', error);
+            } else {
+                setCuponesPorVencer((data || []) as any[]);
+            }
+        } catch (err) {
+            logger.error('Error al cargar cupones por vencer:', err);
+        }
+    }, [socio.id]);
+
+    useEffect(() => {
+        // Cargar todas las secciones en paralelo para mejor rendimiento
+        Promise.all([
+            cargarResumenCuentaMemo(),
+            cargarHistorialMovimientosMemo(),
+            cargarEmbarcacionesMemo(),
+            cargarCuponesPorVencerMemo(),
+        ]);
+    }, [cargarResumenCuentaMemo, cargarHistorialMovimientosMemo, cargarEmbarcacionesMemo, cargarCuponesPorVencerMemo]);
+
 
     const getTipoLabel = (tipo: string) => {
         const tipoObj = TIPOS_EMBARCACION.find((t) => t.value === tipo);
         return tipoObj?.label || tipo;
     };
 
-    const movimientosFiltrados = historialMovimientos
-        .filter(mov => {
-            if (filtroHistorial === 'todos') return true;
-        // Mapear 'cupones' -> 'cupon' y 'pagos' -> 'pago'
-        if (filtroHistorial === 'cupones') return mov.tipo === 'cupon';
-        if (filtroHistorial === 'pagos') return mov.tipo === 'pago';
-            return false;
-        })
-        .reverse(); // Invertir orden para mostrar más recientes primero
+    // Memoizar movimientos filtrados para evitar recalcular en cada render
+    const movimientosFiltrados = useMemo(() => {
+        return historialMovimientos
+            .filter(mov => {
+                // Filtro por tipo
+                if (filtroHistorial !== 'todos') {
+                    // Mapear 'cupones' -> 'cupon' y 'pagos' -> 'pago'
+                    if (filtroHistorial === 'cupones' && mov.tipo !== 'cupon') return false;
+                    if (filtroHistorial === 'pagos' && mov.tipo !== 'pago') return false;
+                }
+                
+                // Filtro por año
+                if (filtroAnio !== 'todos') {
+                    const anioMovimiento = new Date(mov.fecha).getFullYear();
+                    if (anioMovimiento !== parseInt(filtroAnio)) return false;
+                }
+                
+                return true;
+            })
+            .reverse(); // Invertir orden para mostrar más recientes primero
+    }, [historialMovimientos, filtroHistorial, filtroAnio]);
 
-    const getEstadoBadgeClass = (estado: string) => {
+    // Memoizar funciones helper para evitar recrearlas en cada render
+    const getEstadoBadgeClass = useCallback((estado: string) => {
         switch (estado) {
             case 'activo':
                 return 'bg-green-100 text-green-800';
@@ -182,22 +225,22 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
             default:
                 return 'bg-gray-100 text-gray-800';
         }
-    };
+    }, []);
 
-    const formatEstado = (estado: string) => {
+    const formatEstado = useCallback((estado: string) => {
         return estado.charAt(0).toUpperCase() + estado.slice(1);
-    };
+    }, []);
 
-    const formatCurrency = (amount: number) => {
+    const formatCurrency = useCallback((amount: number) => {
         return new Intl.NumberFormat('es-AR', {
             style: 'currency',
             currency: 'ARS',
             minimumFractionDigits: 2,
         }).format(amount);
-    };
+    }, []);
 
     // Helper para formatear fecha en formato DD/MM/YYYY
-    const formatFechaTabla = (fecha: string, mov?: MovimientoCronologico) => {
+    const formatFechaTabla = useCallback((fecha: string, mov?: MovimientoCronologico) => {
         // Si es un cupón, usar el día 1 del período en lugar de la fecha de emisión
         if (mov && mov.tipo === 'cupon' && mov.detalle) {
             const cupon = mov.detalle;
@@ -215,10 +258,10 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
         const month = String(date.getMonth() + 1).padStart(2, '0');
         const year = date.getFullYear();
         return `${day}/${month}/${year}`;
-    };
+    }, []);
 
     // Helper para generar descripción detallada de cupón
-    const getDescripcionCupon = (mov: MovimientoCronologico): string => {
+    const getDescripcionCupon = useCallback((mov: MovimientoCronologico): string => {
         const cupon = mov.detalle;
         if (!cupon) return mov.concepto || 'Cupón';
 
@@ -256,13 +299,27 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
         }
 
         return descripcion;
-    };
+    }, [itemsCupones]);
 
     // Helper para generar descripción detallada de pago
-    const getDescripcionPago = (mov: MovimientoCronologico): string => {
+    const getDescripcionPago = useCallback((mov: MovimientoCronologico): string => {
         const pago = mov.detalle;
         if (!pago) return mov.concepto || 'Pago';
 
+        // SI ES SALDO A FAVOR APLICADO AUTOMÁTICAMENTE, MOSTRAR DIFERENTE
+        if (pago.metodo_pago === 'saldo_a_favor') {
+            let descripcion = '💰 Aplicación automática de crédito anterior';
+            
+            // Agregar a qué cupón(es) se aplicó
+            if (mov.cuponesAplicados && mov.cuponesAplicados.length > 0) {
+                const cuponesNums = mov.cuponesAplicados.map(ca => ca.numero_cupon).join(', ');
+                descripcion += ` → ${cuponesNums}`;
+            }
+            
+            return descripcion;
+        }
+
+        // RESTO DE PAGOS NORMALES
         let descripcion = getMetodoPagoLabel(pago.metodo_pago);
 
         // Agregar referencia bancaria si existe
@@ -275,49 +332,38 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
             descripcion += ` - Comp: ${pago.numero_comprobante}`;
         }
 
-        // Agregar información del cupón aplicado si existe
-        if (mov.cuponId && pago.id) {
-            const cuponesDelPago = cuponesPagos.get(pago.id);
-            if (cuponesDelPago && cuponesDelPago.length > 0) {
-                const cuponesNums = cuponesDelPago.map((pc: any) => 
-                    pc.cupon?.numero_cupon || `Cupón #${pc.cupon_id}`
-                ).join(', ');
-                if (cuponesDelPago.length === 1) {
-                    descripcion += ` - Aplicado a ${cuponesNums}`;
-                } else {
-                    descripcion += ` - Aplicado a: ${cuponesNums}`;
-                }
+        // Mostrar información de aplicación de forma resumida
+        if (mov.cuponesAplicados && mov.cuponesAplicados.length > 0) {
+            if (mov.cuponesAplicados.length === 1) {
+                descripcion += ` → ${mov.cuponesAplicados[0].numero_cupon}`;
+            } else {
+                descripcion += ` → Aplicado a ${mov.cuponesAplicados.length} cupones`;
             }
-        } else if (mov.esSaldoAFavor) {
-            // Si el pago no tiene cupones asociados, indicar que quedó como saldo a favor
-            descripcion += ' - Guardado como saldo a favor';
-        }
-
-        // Agregar observaciones si son relevantes y cortas
-        if (pago.observaciones && pago.observaciones.length < 50) {
-            descripcion += ` - ${pago.observaciones}`;
+        } else if (mov.montoSaldoAFavor && mov.montoSaldoAFavor > 0) {
+            // Si el pago completo quedó como saldo a favor
+            descripcion += ' 💎 (Guardado como crédito)';
         }
 
         return descripcion;
-    };
+    }, []);
 
     // Helper para obtener el importe formateado (negativo para cupones, positivo para pagos)
-    const getImporteFormateado = (mov: MovimientoCronologico): string => {
+    const getImporteFormateado = useCallback((mov: MovimientoCronologico): string => {
         const monto = mov.tipo === 'cupon' 
             ? -mov.monto  // Cupones como negativo
-            : (mov.montoAplicado || mov.monto); // Pagos como positivo
+            : mov.monto; // Pagos como positivo (ahora siempre es el monto total)
         
         const signo = monto < 0 ? '-' : '';
         return `${signo}$ ${Math.abs(monto).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    };
+    }, []);
 
-    const getMovimientoKey = (mov: MovimientoCronologico, index: number) => {
+    const getMovimientoKey = useCallback((mov: MovimientoCronologico, index: number) => {
         if (mov.tipo === 'cupon' && mov.cuponId) return `cupon-${mov.cuponId}`;
-        if (mov.tipo === 'pago' && mov.pagoId) return `pago-${mov.pagoId}-${mov.cuponId || 'none'}`;
+        if (mov.tipo === 'pago' && mov.pagoId) return `pago-${mov.pagoId}`;
         return `mov-${index}`;
-    };
+    }, []);
 
-    const toggleMovimiento = async (mov: MovimientoCronologico, index: number) => {
+    const toggleMovimiento = useCallback(async (mov: MovimientoCronologico, index: number) => {
         const key = getMovimientoKey(mov, index);
         const nuevoExpandidos = new Set(movimientosExpandidos);
         
@@ -343,7 +389,7 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                             setItemsCupones(prev => new Map(prev).set(cuponId, data as ItemCupon[]));
                         }
                     } catch (err) {
-                        console.error('Error al cargar items del cupón:', err);
+                        logger.error('Error al cargar items del cupón:', err);
                     } finally {
                         setCargandoItems(prev => {
                             const nuevo = new Set(prev);
@@ -380,7 +426,7 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                             setCuponesPagos(prev => new Map(prev).set(pagoId, data));
                         }
                     } catch (err) {
-                        console.error('Error al cargar cupones del pago:', err);
+                        logger.error('Error al cargar cupones del pago:', err);
                     } finally {
                         setCargandoItems(prev => {
                             const nuevo = new Set(prev);
@@ -393,12 +439,12 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
         }
         
         setMovimientosExpandidos(nuevoExpandidos);
-    };
+    }, [movimientosExpandidos, itemsCupones, cuponesPagos, cargandoItems]);
 
-    const isMovimientoExpandido = (mov: MovimientoCronologico, index: number) => {
+    const isMovimientoExpandido = useCallback((mov: MovimientoCronologico, index: number) => {
         const key = getMovimientoKey(mov, index);
         return movimientosExpandidos.has(key);
-    };
+    }, [movimientosExpandidos, getMovimientoKey]);
 
     return (
         <div className="min-h-screen bg-gray-50 p-4 md:p-6 lg:p-8">
@@ -650,8 +696,8 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                             )}
                         </div>
 
-                        {/* Resumen de Cuenta - Siempre Visible */}
-                        <div>
+                        {/* Resumen de Cuenta - Estilo Portal */}
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
                             <h3 className="text-base font-medium text-gray-700 mb-3">
                                 Resumen de Cuenta
                             </h3>
@@ -689,6 +735,73 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Lista de Cupones por Vencer */}
+                            {cuponesPorVencer.length > 0 && (
+                                <div className="mt-4">
+                                    <h4 className="text-sm font-semibold text-gray-900 mb-3">
+                                        Cupones por Vencer
+                                    </h4>
+                                    <div className="space-y-2">
+                                        {cuponesPorVencer.map((cupon) => {
+                                            const fechaVenc = new Date(cupon.fecha_vencimiento);
+                                            const hoy = new Date();
+                                            hoy.setHours(0, 0, 0, 0);
+                                            fechaVenc.setHours(0, 0, 0, 0);
+                                            const dias = Math.ceil((fechaVenc.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
+                                            
+                                            return (
+                                                <div
+                                                    key={cupon.id}
+                                                    className={`p-3 rounded-lg border ${
+                                                        dias < 0
+                                                            ? 'bg-red-50 border-red-200'
+                                                            : dias <= 7
+                                                            ? 'bg-orange-50 border-orange-200'
+                                                            : 'bg-gray-50 border-gray-200'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="font-medium text-gray-900 text-sm">
+                                                                Cupón {cupon.numero_cupon}
+                                                            </p>
+                                                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                                <span className="text-xs text-gray-600">
+                                                                    {String(cupon.periodo_mes).padStart(2, '0')}/{cupon.periodo_anio}
+                                                                </span>
+                                                                <span className="text-gray-400">•</span>
+                                                                <span className="text-xs text-gray-600">
+                                                                    Vence: {formatDate(cupon.fecha_vencimiento)}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right ml-4">
+                                                            <p className="font-semibold text-gray-900 text-sm">
+                                                                {formatCurrency(parseFloat(cupon.monto_total.toString()))}
+                                                            </p>
+                                                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                                                cupon.estado === 'vencido'
+                                                                    ? 'bg-red-100 text-red-800'
+                                                                    : dias <= 7
+                                                                    ? 'bg-orange-100 text-orange-800'
+                                                                    : 'bg-yellow-100 text-yellow-800'
+                                                            }`}>
+                                                                {cupon.estado === 'vencido' ? 'Vencido' : dias <= 7 ? 'Por vencer' : 'Pendiente'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        {resumenCuenta.cuponesPendientes > 5 && (
+                                            <p className="text-xs text-gray-500 text-center pt-2">
+                                                Y {resumenCuenta.cuponesPendientes - 5} cupón{resumenCuenta.cuponesPendientes - 5 !== 1 ? 'es' : ''} más
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Keywords Relacionadas */}
@@ -698,38 +811,60 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
 
                         {/* Historial Unificado de Movimientos */}
                         <div>
-                            <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-200">
-                                <h3 className="text-base font-semibold text-gray-900">
-                                    Historial de Movimientos
-                                </h3>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => setFiltroHistorial('todos')}
-                                        className={`px-3 py-1 text-xs rounded-lg transition-colors ${filtroHistorial === 'todos'
-                                                ? 'bg-blue-600 text-white'
-                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                            }`}
-                                    >
-                                        Todos
-                                    </button>
-                                    <button
-                                        onClick={() => setFiltroHistorial('cupones')}
-                                        className={`px-3 py-1 text-xs rounded-lg transition-colors ${filtroHistorial === 'cupones'
-                                                ? 'bg-blue-600 text-white'
-                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                            }`}
-                                    >
-                                        Cupones
-                                    </button>
-                                    <button
-                                        onClick={() => setFiltroHistorial('pagos')}
-                                        className={`px-3 py-1 text-xs rounded-lg transition-colors ${filtroHistorial === 'pagos'
-                                                ? 'bg-blue-600 text-white'
-                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                            }`}
-                                    >
-                                        Pagos
-                                    </button>
+                            <div className="mb-4 pb-3 border-b border-gray-200">
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                    <h3 className="text-base font-semibold text-gray-900">
+                                        Historial de Movimientos
+                                    </h3>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        {/* Filtro por tipo */}
+                                        <div className="flex gap-1 bg-gray-50 p-1 rounded-lg border border-gray-200">
+                                            <button
+                                                onClick={() => setFiltroHistorial('todos')}
+                                                className={`px-3 py-1 text-xs rounded-md transition-colors font-medium ${filtroHistorial === 'todos'
+                                                        ? 'bg-blue-600 text-white shadow-sm'
+                                                        : 'text-gray-600 hover:bg-gray-100'
+                                                    }`}
+                                            >
+                                                Todos
+                                            </button>
+                                            <button
+                                                onClick={() => setFiltroHistorial('cupones')}
+                                                className={`px-3 py-1 text-xs rounded-md transition-colors font-medium ${filtroHistorial === 'cupones'
+                                                        ? 'bg-blue-600 text-white shadow-sm'
+                                                        : 'text-gray-600 hover:bg-gray-100'
+                                                    }`}
+                                            >
+                                                Cupones
+                                            </button>
+                                            <button
+                                                onClick={() => setFiltroHistorial('pagos')}
+                                                className={`px-3 py-1 text-xs rounded-md transition-colors font-medium ${filtroHistorial === 'pagos'
+                                                        ? 'bg-blue-600 text-white shadow-sm'
+                                                        : 'text-gray-600 hover:bg-gray-100'
+                                                    }`}
+                                            >
+                                                Pagos
+                                            </button>
+                                        </div>
+                                        
+                                        {/* Filtro por año */}
+                                        {aniosDisponibles.length > 0 && (
+                                            <div className="flex items-center gap-2">
+                                                <label className="text-xs font-medium text-gray-600">Año:</label>
+                                                <select
+                                                    value={filtroAnio}
+                                                    onChange={(e) => setFiltroAnio(e.target.value)}
+                                                    className="px-2 py-1 text-xs border border-gray-300 rounded-md text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                >
+                                                    <option value="todos">Todos</option>
+                                                    {aniosDisponibles.map(anio => (
+                                                        <option key={anio} value={anio}>{anio}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
 
@@ -777,7 +912,6 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                                                         ? mov.saldoAcumulado 
                                                         : 0;
                                                     const expandido = isMovimientoExpandido(mov, index);
-                                                    const saldoPendiente = mov.saldoPendienteCupon;
                                                     
                                                     return (
                                                         <React.Fragment key={index}>
@@ -788,9 +922,30 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                                                                     {formatFechaTabla(mov.fecha, mov)}
                                                                 </td>
                                                                 <td className="px-4 py-3 whitespace-nowrap">
-                                                                    <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
-                                                                        {mov.tipo === 'cupon' ? 'Cupón' : 'Pago'}
-                                                                    </span>
+                                                                    {mov.tipo === 'cupon' ? (
+                                                                        <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-orange-50 text-orange-700 border border-orange-200">
+                                                                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                                                <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
+                                                                                <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd"/>
+                                                                            </svg>
+                                                                            Cupón
+                                                                        </span>
+                                                                    ) : pago?.metodo_pago === 'saldo_a_favor' ? (
+                                                                        <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                                                                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                                                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
+                                                                            </svg>
+                                                                            Crédito Auto
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-green-50 text-green-700 border border-green-200">
+                                                                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                                                <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/>
+                                                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd"/>
+                                                                            </svg>
+                                                                            Pago
+                                                                        </span>
+                                                                    )}
                                                                 </td>
                                                                 <td className="px-4 py-3 text-sm text-gray-900">
                                                                     {descripcion}
@@ -798,8 +953,29 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                                                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-medium text-gray-900">
                                                                     {importe}
                                                                 </td>
-                                                                <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-semibold text-gray-900">
-                                                                    $ {saldo.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-semibold">
+                                                                    {saldo < 0 ? (
+                                                                        <div className="flex flex-col items-end">
+                                                                            <span className="text-red-600">
+                                                                                - $ {Math.abs(saldo).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                            </span>
+                                                                            <span className="text-xs font-normal text-red-500">Debe</span>
+                                                                        </div>
+                                                                    ) : saldo > 0 ? (
+                                                                        <div className="flex flex-col items-end">
+                                                                            <span className="text-green-600">
+                                                                                + $ {saldo.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                            </span>
+                                                                            <span className="text-xs font-normal text-green-500">A favor</span>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="flex flex-col items-end">
+                                                                            <span className="text-gray-600">
+                                                                                $ 0,00
+                                                                            </span>
+                                                                            <span className="text-xs font-normal text-gray-500">Al día</span>
+                                                                        </div>
+                                                                    )}
                                                                 </td>
                                                                 <td className="px-4 py-3 whitespace-nowrap text-center">
                                                                     <button
@@ -944,32 +1120,11 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                                                                                             <p className="text-gray-900">{formatDate(pago.fecha_pago)}</p>
                                                                                         </div>
                                                                                         <div>
-                                                                                            <label className="block text-xs font-medium text-gray-500 mb-1">Monto Aplicado</label>
-                                                                                            <p className="text-gray-900 font-semibold">
-                                                                                                {mov.montoAplicado 
-                                                                                                    ? formatCurrency(mov.montoAplicado)
-                                                                                                    : formatCurrency(parseFloat(pago.monto.toString()))
-                                                                                                }
+                                                                                            <label className="block text-xs font-medium text-gray-500 mb-1">Monto Total del Pago</label>
+                                                                                            <p className="text-gray-900 font-bold text-lg">
+                                                                                                {formatCurrency(parseFloat(pago.monto.toString()))}
                                                                                             </p>
-                                                                                            {mov.montoAplicado && mov.montoAplicado !== parseFloat(pago.monto.toString()) && (
-                                                                                                <p className="text-xs text-gray-500 mt-1">
-                                                                                                    (Pago total: {formatCurrency(parseFloat(pago.monto.toString()))})
-                                                                                                </p>
-                                                                                            )}
                                                                                         </div>
-                                                                                        {saldoPendiente !== undefined && (
-                                                                                            <div>
-                                                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Saldo Pendiente del Cupón</label>
-                                                                                                <p className={`font-semibold ${
-                                                                                                    saldoPendiente === 0 ? 'text-green-600' : 'text-orange-600'
-                                                                                                }`}>
-                                                                                                    {saldoPendiente === 0 
-                                                                                                        ? '✅ PAGADO COMPLETAMENTE' 
-                                                                                                        : formatCurrency(saldoPendiente)
-                                                                                                    }
-                                                                                                </p>
-                                                                                            </div>
-                                                                                        )}
                                                                                         <div>
                                                                                             <label className="block text-xs font-medium text-gray-500 mb-1">Método de Pago</label>
                                                                                             <p className="text-gray-900">{getMetodoPagoLabel(pago.metodo_pago)}</p>
@@ -1003,61 +1158,65 @@ export default function DetalleSocioClient({ socio }: DetalleSocioClientProps) {
                                                                                     </div>
                                                                                 </div>
                                                                                 
-                                                                                {/* Nota de Saldo a Favor si no tiene cupones asociados */}
-                                                                                {mov.esSaldoAFavor && (!cuponesPagos.has(pago.id) || cuponesPagos.get(pago.id)!.length === 0) && (
-                                                                                    <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-                                                                                        <p className="text-xs text-purple-800">
-                                                                                            <strong>⚠️ Este pago no tiene cupones asociados.</strong> El monto completo se guardó como saldo a favor y se aplicará automáticamente al próximo cupón generado.
-                                                                                        </p>
-                                                                                    </div>
-                                                                                )}
-                                                                                
-                                                                                {/* Cupones Asociados */}
-                                                                                {cargandoItems.has(pago.id) ? (
-                                                                                    <div className="text-center py-4 text-sm text-gray-500">Cargando cupones asociados...</div>
-                                                                                ) : cuponesPagos.has(pago.id) && cuponesPagos.get(pago.id)!.length > 0 ? (
+                                                                                {/* Desglose de Aplicación del Pago */}
+                                                                                {mov.cuponesAplicados && mov.cuponesAplicados.length > 0 && (
                                                                                     <div>
                                                                                         <h4 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
-                                                                                            Cupones Asociados ({cuponesPagos.get(pago.id)!.length})
+                                                                                            Aplicación del Pago
                                                                                         </h4>
+                                                                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-3">
+                                                                                            <p className="text-xs text-blue-800">
+                                                                                                <strong>ℹ️ Desglose:</strong> Este pago de <strong>{formatCurrency(parseFloat(pago.monto.toString()))}</strong> se aplicó de la siguiente manera:
+                                                                                            </p>
+                                                                                        </div>
                                                                                         <div className="overflow-x-auto">
                                                                                             <table className="min-w-full divide-y divide-gray-200 text-sm">
                                                                                                 <thead className="bg-gray-50">
                                                                                                     <tr>
                                                                                                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cupón</th>
-                                                                                                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Monto Total</th>
+                                                                                                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Monto del Cupón</th>
                                                                                                         <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Monto Aplicado</th>
-                                                                                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
                                                                                                     </tr>
                                                                                                 </thead>
                                                                                                 <tbody className="bg-white divide-y divide-gray-200">
-                                                                                                    {cuponesPagos.get(pago.id)!.map((pagoCupon: any, idx: number) => (
+                                                                                                    {mov.cuponesAplicados.map((ca, idx) => (
                                                                                                         <tr key={idx}>
-                                                                                                            <td className="px-3 py-2 text-gray-900 font-medium">
-                                                                                                                {pagoCupon.cupon?.numero_cupon || `Cupón #${pagoCupon.cupon_id}`}
-                                                                                                            </td>
+                                                                                                            <td className="px-3 py-2 text-gray-900 font-medium">{ca.numero_cupon}</td>
                                                                                                             <td className="px-3 py-2 text-right text-gray-900">
-                                                                                                                {formatCurrency(parseFloat(pagoCupon.cupon?.monto_total?.toString() || '0'))}
+                                                                                                                {formatCurrency(ca.monto_total_cupon)}
                                                                                                             </td>
-                                                                                                            <td className="px-3 py-2 text-right font-semibold text-gray-900">
-                                                                                                                {formatCurrency(parseFloat(pagoCupon.monto_aplicado.toString()))}
-                                                                                                            </td>
-                                                                                                            <td className="px-3 py-2">
-                                                                                                                <span className={`inline-block px-2 py-1 text-xs rounded-full font-medium ${
-                                                                                                                    pagoCupon.cupon?.estado === 'pagado' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                                                                                                                }`}>
-                                                                                                                    {pagoCupon.cupon?.estado === 'pagado' ? 'Pagado' : 'Pendiente'}
-                                                                                                                </span>
+                                                                                                            <td className="px-3 py-2 text-right font-semibold text-green-600">
+                                                                                                                {formatCurrency(ca.monto_aplicado)}
                                                                                                             </td>
                                                                                                         </tr>
                                                                                                     ))}
+                                                                                                    {mov.montoSaldoAFavor && mov.montoSaldoAFavor > 0 && (
+                                                                                                        <tr className="bg-purple-50">
+                                                                                                            <td className="px-3 py-2 text-gray-900 font-medium">💎 Saldo a Favor</td>
+                                                                                                            <td className="px-3 py-2 text-right text-gray-500">—</td>
+                                                                                                            <td className="px-3 py-2 text-right font-semibold text-purple-600">
+                                                                                                                {formatCurrency(mov.montoSaldoAFavor)}
+                                                                                                            </td>
+                                                                                                        </tr>
+                                                                                                    )}
+                                                                                                    <tr className="bg-gray-100 font-bold">
+                                                                                                        <td className="px-3 py-2 text-gray-900" colSpan={2}>TOTAL</td>
+                                                                                                        <td className="px-3 py-2 text-right text-gray-900">
+                                                                                                            {formatCurrency(parseFloat(pago.monto.toString()))}
+                                                                                                        </td>
+                                                                                                    </tr>
                                                                                                 </tbody>
                                                                                             </table>
                                                                                         </div>
                                                                                     </div>
-                                                                                ) : (
-                                                                                    <div className="text-sm text-gray-500 text-center py-2">
-                                                                                        No hay cupones asociados a este pago
+                                                                                )}
+                                                                                
+                                                                                {/* Si el pago completo quedó como saldo a favor */}
+                                                                                {(!mov.cuponesAplicados || mov.cuponesAplicados.length === 0) && mov.montoSaldoAFavor && (
+                                                                                    <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                                                                                        <p className="text-xs text-purple-800">
+                                                                                            <strong>💎 Saldo a Favor:</strong> El monto completo de <strong>{formatCurrency(mov.montoSaldoAFavor)}</strong> se guardó como crédito a favor y se aplicará automáticamente al próximo cupón generado.
+                                                                                        </p>
                                                                                     </div>
                                                                                 )}
                                                                                 

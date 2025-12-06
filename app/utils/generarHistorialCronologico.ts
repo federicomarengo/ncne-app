@@ -1,8 +1,8 @@
 /**
  * Genera un historial cronológico de cupones y pagos con saldo acumulado
  * 
- * Estructura: Una línea por cupón seguida de sus pagos aplicados
- * Muestra saldo acumulado después de cada movimiento
+ * IMPORTANTE: Muestra cada pago UNA SOLA VEZ con su monto total,
+ * no fragmentado por cupón. El desglose de aplicación se incluye en el detalle.
  * 
  * @param socioId - ID del socio
  * @param supabase - Cliente de Supabase
@@ -10,20 +10,29 @@
  */
 
 import { calcularSaldoHistorico } from './calcularSaldoHistorico';
+import { logger } from '@/app/utils/logger';
+
+export interface CuponAplicado {
+  cupon_id: number;
+  numero_cupon: string;
+  monto_aplicado: number;
+  monto_total_cupon: number;
+}
 
 export interface MovimientoCronologico {
-  tipo: 'cupon' | 'pago' | 'saldo_a_favor';
+  tipo: 'cupon' | 'pago';
   fecha: string;
   concepto: string;
-  monto: number;
+  monto: number; // Monto TOTAL del movimiento (no fragmentado)
   saldoAcumulado: number;
-  saldoPendienteCupon?: number; // Para pagos, el saldo pendiente del cupón después de este pago
   detalle: any;
   cuponId?: number;
   pagoId?: number;
-  montoAplicado?: number; // Para pagos, el monto aplicado a este cupón específico
-  estado?: string; // Estado del cupón o pago
-  esSaldoAFavor?: boolean; // Indica si este pago quedó como saldo a favor
+  estado?: string;
+  
+  // Para PAGOS: información de aplicación
+  cuponesAplicados?: CuponAplicado[]; // Lista de cupones a los que se aplicó este pago
+  montoSaldoAFavor?: number; // Si quedó saldo a favor después de aplicar a cupones
 }
 
 export async function generarHistorialCronologico(
@@ -31,7 +40,7 @@ export async function generarHistorialCronologico(
   supabase: any
 ): Promise<MovimientoCronologico[]> {
   try {
-    // 1. Obtener todos los cupones del socio ordenados por fecha de emisión
+    // 1. Obtener todos los cupones del socio
     const { data: cupones, error: errorCupones } = await supabase
       .from('cupones')
       .select('*')
@@ -39,7 +48,7 @@ export async function generarHistorialCronologico(
       .order('fecha_emision', { ascending: true });
 
     if (errorCupones) {
-      console.error('Error al cargar cupones:', errorCupones);
+      logger.error('Error al cargar cupones:', errorCupones);
       return [];
     }
 
@@ -51,58 +60,60 @@ export async function generarHistorialCronologico(
       .order('fecha_pago', { ascending: true });
 
     if (errorPagos) {
-      console.error('Error al cargar pagos:', errorPagos);
+      logger.error('Error al cargar pagos:', errorPagos);
       return [];
     }
 
-    // 3. Obtener todas las relaciones pago-cupón
+    // 3. Obtener todas las relaciones pago-cupón CON información de cupones
     const pagosIds = pagos?.map((p: any) => p.id) || [];
     const { data: pagosCupones, error: errorPagosCupones } = await supabase
       .from('pagos_cupones')
-      .select('*')
+      .select(`
+        *,
+        cupon:cupones (
+          id,
+          numero_cupon,
+          monto_total
+        )
+      `)
       .in('pago_id', pagosIds);
 
     if (errorPagosCupones) {
-      console.error('Error al cargar relaciones pago-cupón:', errorPagosCupones);
+      logger.error('Error al cargar relaciones pago-cupón:', errorPagosCupones);
     }
 
-    // 4. Crear mapa de pagos por cupón y identificar pagos sin cupones asociados
-    const pagosPorCupon = new Map<number, Array<{ pago: any; montoAplicado: number }>>();
-    const pagosIdsAsociados = new Set<number>(); // IDs de pagos que tienen cupones asociados
+    // 4. Crear mapa de cupones aplicados por pago
+    const cuponesPorPago = new Map<number, CuponAplicado[]>();
     
-    if (pagosCupones && pagos) {
+    if (pagosCupones) {
       pagosCupones.forEach((pc: any) => {
-        const pago = pagos.find((p: any) => p.id === pc.pago_id);
-        if (pago) {
-          pagosIdsAsociados.add(pc.pago_id);
-          if (!pagosPorCupon.has(pc.cupon_id)) {
-            pagosPorCupon.set(pc.cupon_id, []);
-          }
-          pagosPorCupon.get(pc.cupon_id)!.push({
-            pago,
-            montoAplicado: parseFloat(pc.monto_aplicado.toString()),
-          });
+        if (!cuponesPorPago.has(pc.pago_id)) {
+          cuponesPorPago.set(pc.pago_id, []);
         }
+        cuponesPorPago.get(pc.pago_id)!.push({
+          cupon_id: pc.cupon_id,
+          numero_cupon: pc.cupon?.numero_cupon || `Cupón #${pc.cupon_id}`,
+          monto_aplicado: parseFloat(pc.monto_aplicado.toString()),
+          monto_total_cupon: parseFloat(pc.cupon?.monto_total?.toString() || '0'),
+        });
       });
     }
 
-    // 5. Generar historial: agregar todos los movimientos sin calcular saldo acumulado
+    // 5. Generar historial
     const historial: MovimientoCronologico[] = [];
 
-    // 5.1. Agregar todos los cupones con sus pagos
+    // 5.1. Agregar todos los cupones
     if (cupones) {
       for (const cupon of cupones) {
         const montoCupon = parseFloat(cupon.monto_total.toString());
         
         // Usar el día 1 del mes del período como fecha para el cupón
-        // Esto es la fecha que se muestra en la tabla y se usa para ordenamiento
         let fechaCupon: string;
         if (cupon.periodo_mes && cupon.periodo_anio) {
           const month = String(cupon.periodo_mes).padStart(2, '0');
           const year = cupon.periodo_anio;
-          fechaCupon = `${year}-${month}-01`; // Formato YYYY-MM-DD
+          fechaCupon = `${year}-${month}-01`;
         } else {
-          // Fallback a fecha_emision si no hay período
           fechaCupon = cupon.fecha_emision;
         }
         
@@ -112,66 +123,47 @@ export async function generarHistorialCronologico(
           concepto: `Cupón ${cupon.numero_cupon}`,
           monto: montoCupon,
           saldoAcumulado: 0, // Se recalculará después
-          saldoPendienteCupon: montoCupon, // Saldo pendiente inicial = monto total
           detalle: cupon,
           cuponId: cupon.id,
           estado: cupon.estado,
         });
-
-        // Agregar pagos aplicados a este cupón, ordenados por fecha
-        const pagosDelCupon = pagosPorCupon.get(cupon.id) || [];
-        pagosDelCupon.sort((a, b) => 
-          new Date(a.pago.fecha_pago).getTime() - new Date(b.pago.fecha_pago).getTime()
-        );
-
-        let saldoPendienteCupon = montoCupon;
-        for (const { pago, montoAplicado } of pagosDelCupon) {
-          saldoPendienteCupon -= montoAplicado; // Reducir saldo pendiente del cupón
-          historial.push({
-            tipo: 'pago',
-            fecha: pago.fecha_pago,
-            concepto: `Pago - ${pago.metodo_pago}`,
-            monto: montoAplicado,
-            saldoAcumulado: 0, // Se recalculará después
-            saldoPendienteCupon: Math.max(0, saldoPendienteCupon), // Saldo pendiente después de este pago
-            detalle: pago,
-            pagoId: pago.id,
-            cuponId: cupon.id,
-            montoAplicado,
-            estado: pago.estado_conciliacion,
-          });
-        }
       }
     }
 
-    // 5.2. Agregar pagos que NO están asociados a ningún cupón (saldo a favor)
+    // 5.2. Agregar TODOS los pagos (UNA VEZ cada uno, con su monto total)
     if (pagos) {
       for (const pago of pagos) {
-        if (!pagosIdsAsociados.has(pago.id)) {
-          // Este pago no tiene cupones asociados, se guardó como saldo a favor
-          const montoPago = parseFloat(pago.monto.toString());
-          historial.push({
-            tipo: 'pago',
-            fecha: pago.fecha_pago,
-            concepto: `Pago - ${pago.metodo_pago} (Saldo a favor)`,
-            monto: montoPago,
-            saldoAcumulado: 0, // Se recalculará después
-            detalle: pago,
-            pagoId: pago.id,
-            montoAplicado: montoPago,
-            estado: pago.estado_conciliacion,
-            esSaldoAFavor: true, // Marcar que este pago quedó como saldo a favor
-          });
-        }
+        const montoPago = parseFloat(pago.monto.toString());
+        const cuponesAplicados = cuponesPorPago.get(pago.id) || [];
+        
+        // Calcular cuánto se aplicó a cupones vs cuánto quedó como saldo a favor
+        const totalAplicadoACupones = cuponesAplicados.reduce(
+          (sum, ca) => sum + ca.monto_aplicado, 
+          0
+        );
+        const montoSaldoAFavor = montoPago - totalAplicadoACupones;
+        
+        historial.push({
+          tipo: 'pago',
+          fecha: pago.fecha_pago,
+          concepto: `Pago - ${pago.metodo_pago}`,
+          monto: montoPago, // MONTO TOTAL del pago
+          saldoAcumulado: 0, // Se recalculará después
+          detalle: pago,
+          pagoId: pago.id,
+          estado: pago.estado_conciliacion,
+          cuponesAplicados: cuponesAplicados.length > 0 ? cuponesAplicados : undefined,
+          montoSaldoAFavor: montoSaldoAFavor > 0 ? montoSaldoAFavor : undefined,
+        });
       }
     }
 
-    // 6. Ordenar todo por fecha (cupones y pagos mezclados)
+    // 6. Ordenar todo por fecha
     historial.sort((a, b) => {
       const fechaA = new Date(a.fecha).getTime();
       const fechaB = new Date(b.fecha).getTime();
       if (fechaA !== fechaB) {
-        return fechaA - fechaB; // Orden ascendente: más antiguos primero
+        return fechaA - fechaB; // Más antiguos primero
       }
       // Si misma fecha, cupones primero, luego pagos
       if (a.tipo === 'cupon' && b.tipo === 'pago') return -1;
@@ -179,11 +171,7 @@ export async function generarHistorialCronologico(
       return 0;
     });
 
-    // 7. Calcular saldo acumulado secuencialmente desde el movimiento más antiguo
-    // Lógica: empezar en 0, luego para cada movimiento en orden cronológico:
-    // - Si es cupón: resta del saldo (aumenta deuda, saldo negativo)
-    // - Si es pago: suma al saldo (reduce deuda, saldo positivo)
-    // Saldo negativo = debe dinero, Saldo positivo = saldo a favor
+    // 7. Calcular saldo acumulado
     let saldoAcumulado = 0;
     
     for (let i = 0; i < historial.length; i++) {
@@ -194,9 +182,7 @@ export async function generarHistorialCronologico(
         saldoAcumulado -= movimiento.monto;
       } else {
         // Pago: suma (reduce deuda, saldo positivo)
-        // Usar montoAplicado si existe, sino usar monto
-        const montoPago = movimiento.montoAplicado ?? movimiento.monto;
-        saldoAcumulado += montoPago;
+        saldoAcumulado += movimiento.monto;
       }
       
       movimiento.saldoAcumulado = saldoAcumulado;
@@ -204,8 +190,7 @@ export async function generarHistorialCronologico(
 
     return historial;
   } catch (error) {
-    console.error('Error al generar historial cronológico:', error);
+    logger.error('Error al generar historial cronológico:', error);
     return [];
   }
 }
-

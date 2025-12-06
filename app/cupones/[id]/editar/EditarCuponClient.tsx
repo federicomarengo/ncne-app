@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Cupon, ItemCupon, EstadoCupon } from '@/app/types/cupones';
 import { getNombreCompleto } from '@/app/types/socios';
 import { formatDate } from '@/app/utils/formatDate';
+import { logger } from '@/app/utils/logger';
 
 interface EditarCuponClientProps {
     cupon: Cupon;
@@ -54,7 +55,7 @@ export default function EditarCuponClient({ cupon }: EditarCuponClientProps) {
             const data = await response.json();
             setItems(data.items || []);
         } catch (err) {
-            console.error('Error al cargar items:', err);
+            logger.error('Error al cargar items:', err);
             setError('Error al cargar items del cupón');
         } finally {
             setLoadingItems(false);
@@ -147,7 +148,7 @@ export default function EditarCuponClient({ cupon }: EditarCuponClientProps) {
             router.push(`/cupones/${cupon.id}`);
             router.refresh();
         } catch (err: any) {
-            console.error('Error al actualizar cupón:', err);
+            logger.error('Error al actualizar cupón:', err);
             setError(err.message || 'Error al actualizar cupón');
         } finally {
             setLoading(false);
@@ -239,7 +240,7 @@ export default function EditarCuponClient({ cupon }: EditarCuponClientProps) {
                 subtotal: '',
             });
         } catch (err: any) {
-            console.error('Error al guardar item:', err);
+            logger.error('Error al guardar item:', err);
             setError(err.message || 'Error al guardar item');
         }
     };
@@ -270,7 +271,7 @@ export default function EditarCuponClient({ cupon }: EditarCuponClientProps) {
                 setFormData(prev => ({ ...prev, monto_total: nuevoTotal.toFixed(2) }));
             }
         } catch (err: any) {
-            console.error('Error al eliminar item:', err);
+            logger.error('Error al eliminar item:', err);
             setError(err.message || 'Error al eliminar item');
         }
     };

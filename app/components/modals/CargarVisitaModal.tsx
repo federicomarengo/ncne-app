@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Modal from '../ui/Modal';
 import { Socio, getNombreCompleto } from '@/app/types/socios';
 import { createClient } from '@/utils/supabase/client';
+import { logger } from '@/app/utils/logger';
 
 interface CargarVisitaModalProps {
   isOpen: boolean;
@@ -67,12 +68,12 @@ export default function CargarVisitaModal({
         .order('apellido', { ascending: true });
 
       if (error) {
-        console.error('Error al cargar socios:', error);
+        logger.error('Error al cargar socios:', error);
       } else {
         setSocios((data as Socio[]) || []);
       }
     } catch (err) {
-      console.error('Error al cargar socios:', err);
+      logger.error('Error al cargar socios:', err);
     } finally {
       setLoadingSocios(false);
     }
@@ -88,7 +89,7 @@ export default function CargarVisitaModal({
         .maybeSingle(); // Usar maybeSingle en lugar de single para manejar cuando no hay datos
 
       if (error) {
-        console.error('Error al cargar costo de visita:', error);
+        logger.error('Error al cargar costo de visita:', error);
         // Mantener valor por defecto (4200)
         setCostoUnitario(4200);
       } else if (data?.costo_visita) {
@@ -99,7 +100,7 @@ export default function CargarVisitaModal({
         setCostoUnitario(4200);
       }
     } catch (err) {
-      console.error('Error al cargar costo de visita:', err);
+      logger.error('Error al cargar costo de visita:', err);
       // Mantener valor por defecto en caso de error
       setCostoUnitario(4200);
     }
@@ -120,7 +121,7 @@ export default function CargarVisitaModal({
         .lte('fecha_visita', ultimoDiaMes.toISOString().split('T')[0]);
 
       if (error) {
-        console.error('Error al cargar resumen del mes:', error);
+        logger.error('Error al cargar resumen del mes:', error);
       } else {
         const totalVisitas = visitas?.length || 0;
         const totalAcumulado = visitas?.reduce((sum, v) => sum + parseFloat(v.monto_total.toString()), 0) || 0;
@@ -135,7 +136,7 @@ export default function CargarVisitaModal({
         });
       }
     } catch (err) {
-      console.error('Error al cargar resumen del mes:', err);
+      logger.error('Error al cargar resumen del mes:', err);
     }
   };
 

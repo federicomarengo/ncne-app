@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Visita } from '@/app/types/visitas';
 import { createClient } from '@/utils/supabase/client';
 import { Socio, getNombreCompleto } from '@/app/types/socios';
+import { logger } from '@/app/utils/logger';
 
 interface EditarVisitaClientProps {
     visita: Visita;
@@ -57,12 +58,12 @@ export default function EditarVisitaClient({ visita }: EditarVisitaClientProps) 
                 .order('apellido', { ascending: true });
 
             if (error) {
-                console.error('Error al cargar socios:', error);
+                logger.error('Error al cargar socios:', error);
             } else {
                 setSocios((data as Socio[]) || []);
             }
         } catch (err) {
-            console.error('Error al cargar socios:', err);
+            logger.error('Error al cargar socios:', err);
         } finally {
             setLoadingSocios(false);
         }

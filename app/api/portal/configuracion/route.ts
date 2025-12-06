@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getPortalSocioId } from '@/utils/portal/session';
+import { logger } from '@/app/utils/logger';
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
       .single();
 
     if (error) {
-      console.error('Error al obtener configuración:', error);
+      logger.error('Error al obtener configuración:', error);
       return NextResponse.json(
         { error: 'Error al obtener configuración' },
         { status: 500 }
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ configuracion: config || null });
   } catch (error: any) {
-    console.error('Error en API portal/configuracion:', error);
+    logger.error('Error en API portal/configuracion:', error);
     return NextResponse.json(
       { error: 'Error al obtener configuración' },
       { status: 500 }

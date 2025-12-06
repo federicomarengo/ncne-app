@@ -1,6 +1,7 @@
 import { createClient } from '@/utils/supabase/server';
 import ConciliacionClient from './ConciliacionClient';
 import { MovimientoBancario } from '@/app/types/movimientos_bancarios';
+import { logger } from '@/app/utils/logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +16,7 @@ async function getMovimientosBancarios(): Promise<MovimientoBancario[]> {
       .limit(100);
 
     if (error) {
-      console.error('Error al cargar movimientos bancarios:', error);
+      logger.error('Error al cargar movimientos bancarios:', error);
       return [];
     }
 
@@ -25,7 +26,7 @@ async function getMovimientosBancarios(): Promise<MovimientoBancario[]> {
 
     return data as MovimientoBancario[];
   } catch (err) {
-    console.error('Error inesperado al cargar movimientos bancarios:', err);
+    logger.error('Error inesperado al cargar movimientos bancarios:', err);
     return [];
   }
 }

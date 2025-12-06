@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/utils/supabase/client';
+import { logger } from '@/app/utils/logger';
 
 interface SelectorSocioProps {
   onSocioSeleccionado: (socioId: number) => void;
@@ -124,7 +125,7 @@ export default function SelectorSocio({
       if (error) throw error;
       setSocios(data || []);
     } catch (err) {
-      console.error('Error al cargar socios:', err);
+      logger.error('Error al cargar socios:', err);
     } finally {
       setLoading(false);
     }
@@ -145,7 +146,7 @@ export default function SelectorSocio({
         setBusqueda(`${data.apellido}, ${data.nombre} (Socio #${data.numero_socio})`);
       }
     } catch (err) {
-      console.error('Error al cargar socio inicial:', err);
+      logger.error('Error al cargar socio inicial:', err);
     }
   };
 

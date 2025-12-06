@@ -7,6 +7,7 @@ import { Socio, getNombreCompleto } from '@/app/types/socios';
 import { Cupon } from '@/app/types/cupones';
 import { formatDate } from '@/app/utils/formatDate';
 import { createClient } from '@/utils/supabase/client';
+import { logger } from '@/app/utils/logger';
 
 interface EditarPagoClientProps {
   pago: Pago;
@@ -69,12 +70,12 @@ export default function EditarPagoClient({ pago }: EditarPagoClientProps) {
         .order('apellido', { ascending: true });
 
       if (error) {
-        console.error('Error al cargar socios:', error);
+        logger.error('Error al cargar socios:', error);
       } else {
         setSocios((data as Socio[]) || []);
       }
     } catch (err) {
-      console.error('Error al cargar socios:', err);
+      logger.error('Error al cargar socios:', err);
     } finally {
       setLoadingSocios(false);
     }
@@ -92,13 +93,13 @@ export default function EditarPagoClient({ pago }: EditarPagoClientProps) {
         .order('fecha_vencimiento', { ascending: true });
 
       if (error) {
-        console.error('Error al cargar cupones:', error);
+        logger.error('Error al cargar cupones:', error);
         setCuponesDisponibles([]);
       } else {
         setCuponesDisponibles((data as Cupon[]) || []);
       }
     } catch (err) {
-      console.error('Error al cargar cupones:', err);
+      logger.error('Error al cargar cupones:', err);
     } finally {
       setLoadingCupones(false);
     }
@@ -113,7 +114,7 @@ export default function EditarPagoClient({ pago }: EditarPagoClientProps) {
       const data = await response.json();
       setCuponesAsociados(data.cupones || []);
     } catch (err) {
-      console.error('Error al cargar cupones asociados:', err);
+      logger.error('Error al cargar cupones asociados:', err);
     }
   };
 
@@ -212,7 +213,7 @@ export default function EditarPagoClient({ pago }: EditarPagoClientProps) {
       router.push(`/pagos/${pago.id}`);
       router.refresh();
     } catch (err: any) {
-      console.error('Error al actualizar pago:', err);
+      logger.error('Error al actualizar pago:', err);
       setError(err.message || 'Error al actualizar pago');
     } finally {
       setLoading(false);
@@ -290,7 +291,7 @@ export default function EditarPagoClient({ pago }: EditarPagoClientProps) {
         monto_aplicado: '',
       });
     } catch (err: any) {
-      console.error('Error al guardar cupón:', err);
+      logger.error('Error al guardar cupón:', err);
       setError(err.message || 'Error al guardar asociación con cupón');
     }
   };
@@ -312,7 +313,7 @@ export default function EditarPagoClient({ pago }: EditarPagoClientProps) {
 
       await cargarCuponesAsociados();
     } catch (err: any) {
-      console.error('Error al eliminar cupón:', err);
+      logger.error('Error al eliminar cupón:', err);
       setError(err.message || 'Error al eliminar asociación');
     }
   };

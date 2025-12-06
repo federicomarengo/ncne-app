@@ -3,6 +3,7 @@ import { VistaPreviaCupon, ItemPrevia } from '@/app/types/cupones';
 import { Socio } from '@/app/types/socios';
 import { Embarcacion } from '@/app/types/embarcaciones';
 import { Visita } from '@/app/types/visitas';
+import { logger } from '@/app/utils/logger';
 
 export interface Configuracion {
   cuota_social_base: number;
@@ -152,7 +153,7 @@ export async function calcularVistaPreviaCupones(
     .select('*');
 
   if (errorEmbarcaciones) {
-    console.error('Error al cargar embarcaciones:', errorEmbarcaciones);
+    logger.error('Error al cargar embarcaciones:', errorEmbarcaciones);
   }
 
   // Obtener visitas pendientes del mes
@@ -167,7 +168,7 @@ export async function calcularVistaPreviaCupones(
     .lte('fecha_visita', fechaFin.toISOString().split('T')[0]);
 
   if (errorVisitas) {
-    console.error('Error al cargar visitas:', errorVisitas);
+    logger.error('Error al cargar visitas:', errorVisitas);
   }
 
   // Obtener cupones pendientes o vencidos cuya fecha de vencimiento ya pasó para calcular intereses
@@ -178,29 +179,8 @@ export async function calcularVistaPreviaCupones(
     .in('estado', ['pendiente', 'vencido'])
     .lt('fecha_vencimiento', fechaActualStr);
 
-  // Obtener cuotas de planes que vencen en el mes
-  const fechaInicioCuotas = new Date(anio, mes - 1, 1);
-  const fechaFinCuotas = new Date(anio, mes, 0, 23, 59, 59);
-
-  const { data: cuotasPlanes, error: errorCuotasPlanes } = await supabase
-    .from('cuotas_plan')
-    .select(`
-      *,
-      plan:planes_financiacion (
-        concepto_financiado,
-        socio_id
-      )
-    `)
-    .gte('fecha_vencimiento', fechaInicioCuotas.toISOString().split('T')[0])
-    .lte('fecha_vencimiento', fechaFinCuotas.toISOString().split('T')[0])
-    .in('estado', ['pendiente', 'vencida']);
-
-  if (errorCuotasPlanes) {
-    console.error('Error al cargar cuotas de planes:', errorCuotasPlanes);
-  }
-
   if (errorCuponesVencidos) {
-    console.error('Error al cargar cupones vencidos:', errorCuponesVencidos);
+    logger.error('Error al cargar cupones vencidos:', errorCuponesVencidos);
   }
 
   // Calcular vista previa para cada socio
@@ -229,7 +209,7 @@ export async function calcularVistaPreviaCupones(
       montoAmarra += costoAmarra;
       itemsPrevia.push({
         tipo: 'amarra',
-        descripcion: `${obtenerDescripcionAmarra(embarcacion, configuracion)} - ${formatCurrency(costoAmarra)}`,
+        descripcion: obtenerDescripcionAmarra(embarcacion, configuracion),
         monto: costoAmarra,
       });
     }
@@ -250,46 +230,8 @@ export async function calcularVistaPreviaCupones(
       });
     }
 
-    // Cuotas de planes de financiación que vencen en el mes
-    const cuotasPlanesSocio = (cuotasPlanes || []).filter(
-      (c: any) => c.plan?.socio_id === socio.id
-    );
-    let montoCuotasPlanes = 0;
-
-    for (const cuota of cuotasPlanesSocio) {
-      const montoCuota = parseFloat(cuota.monto?.toString() || '0');
-      const fechaVencimientoCuota = new Date(cuota.fecha_vencimiento);
-      const concepto = cuota.plan?.concepto_financiado || 'Plan de Financiación';
-      const numeroCuota = cuota.numero_cuota;
-      const totalCuotas = cuota.plan?.cantidad_cuotas || 1;
-
-      // Calcular interés si la fecha de vencimiento ya pasó (sin días de gracia para cuotas de planes)
-      let interesCuota = 0;
-      const diasMoraCuota = Math.floor(
-        (fechaActual.getTime() - fechaVencimientoCuota.getTime()) / (1000 * 60 * 60 * 24)
-      );
-      if (diasMoraCuota > 0) {
-        const interesDiario = (montoCuota * configuracion.tasa_interes_mora) / 30;
-        interesCuota = interesDiario * diasMoraCuota;
-      }
-
-      const montoTotalCuota = montoCuota + interesCuota;
-      montoCuotasPlanes += montoTotalCuota;
-
-      if (interesCuota > 0) {
-        itemsPrevia.push({
-          tipo: 'cuota_plan',
-          descripcion: `Cuota ${numeroCuota}/${totalCuotas} - ${concepto} - ${formatCurrency(montoCuota)} + Interés ${formatCurrency(interesCuota)}`,
-          monto: montoTotalCuota,
-        });
-      } else {
-        itemsPrevia.push({
-          tipo: 'cuota_plan',
-          descripcion: `Cuota ${numeroCuota}/${totalCuotas} - ${concepto} - ${formatCurrency(montoCuota)}`,
-          monto: montoCuota,
-        });
-      }
-    }
+    // Cuotas de planes de financiación - FUNCIONALIDAD REMOVIDA
+    const montoCuotasPlanes = 0;
 
     // Intereses por deuda vencida (uno por cada cupón vencido)
     const cuponesVencidosSocio = (cuponesVencidos || []).filter(

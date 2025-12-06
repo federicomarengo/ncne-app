@@ -7,6 +7,7 @@
 
 import { MovimientoProcesado } from '@/app/types/movimientos_bancarios';
 import { normalizarTexto } from './normalizarTexto';
+import { logger } from '@/app/utils/logger';
 
 /**
  * Interfaz para los datos que se usarán para generar el hash
@@ -131,7 +132,7 @@ export function generarHashMovimientoSync(movimiento: MovimientoProcesado): stri
       const crypto = require('crypto');
       return crypto.createHash('sha256').update(jsonString).digest('hex');
     } catch (e) {
-      console.error('Error al generar hash con crypto:', e);
+      logger.error('Error al generar hash con crypto:', e);
     }
   }
   

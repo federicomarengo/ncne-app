@@ -6,6 +6,7 @@
 
 import { Configuracion, ConfiguracionUpdate, CONFIGURACION_DEFAULTS } from '@/app/types/configuracion';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { logger } from '@/app/utils/logger';
 
 /**
  * Obtiene la configuración del sistema desde la base de datos
@@ -41,7 +42,7 @@ export async function obtenerConfiguracion(supabase: SupabaseClient): Promise<Co
 
   if (insertError || !nuevaData) {
     // Si falla el insert, retornar valores por defecto en memoria
-    console.error('Error al crear configuración inicial:', insertError);
+    logger.error('Error al crear configuración inicial:', insertError);
     return configuracionInicial;
   }
 
@@ -69,7 +70,7 @@ export async function guardarConfiguracion(
     .eq('id', 1);
 
   if (error) {
-    console.error('Error al guardar configuración:', error);
+    logger.error('Error al guardar configuración:', error);
     return {
       success: false,
       error: error.message || 'Error al guardar la configuración',
@@ -117,7 +118,7 @@ export async function restaurarValoresPredeterminados(supabase: SupabaseClient):
     .eq('id', 1);
 
   if (error) {
-    console.error('Error al restaurar valores predeterminados:', error);
+    logger.error('Error al restaurar valores predeterminados:', error);
     return {
       success: false,
       error: error.message || 'Error al restaurar los valores predeterminados',

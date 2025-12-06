@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useId } from 'react';
 import { useRouter } from 'next/navigation';
 import { Configuracion, ConfiguracionUpdate } from '@/app/types/configuracion';
 import { guardarConfiguracion, restaurarValoresPredeterminados } from '@/app/utils/configuracion';
 import { createClient } from '@/utils/supabase/client';
+import ConfiguracionEmailSection from '@/app/components/ConfiguracionEmailSection';
 
 interface ConfiguracionClientProps {
   configuracionInicial: Configuracion;
@@ -12,6 +13,7 @@ interface ConfiguracionClientProps {
 
 export default function ConfiguracionClient({ configuracionInicial }: ConfiguracionClientProps) {
   const router = useRouter();
+  const formId = useId();
   const [formData, setFormData] = useState<ConfiguracionUpdate>({
     club_nombre: configuracionInicial.club_nombre,
     club_direccion: configuracionInicial.club_direccion,
@@ -392,12 +394,12 @@ export default function ConfiguracionClient({ configuracionInicial }: Configurac
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="banco_cbu" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor={`${formId}-banco_cbu`} className="block text-sm font-medium text-gray-700 mb-1">
                     CBU/CVU
                   </label>
                   <input
                     type="text"
-                    id="banco_cbu"
+                    id={`${formId}-banco_cbu`}
                     name="banco_cbu"
                     value={formData.banco_cbu || ''}
                     onChange={handleCBUChange}
@@ -409,12 +411,12 @@ export default function ConfiguracionClient({ configuracionInicial }: Configurac
                 </div>
 
                 <div>
-                  <label htmlFor="banco_alias" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor={`${formId}-banco_alias`} className="block text-sm font-medium text-gray-700 mb-1">
                     Alias CBU
                   </label>
                   <input
                     type="text"
-                    id="banco_alias"
+                    id={`${formId}-banco_alias`}
                     name="banco_alias"
                     value={formData.banco_alias || ''}
                     onChange={handleChange}
@@ -518,12 +520,12 @@ export default function ConfiguracionClient({ configuracionInicial }: Configurac
                 </div>
 
                 <div>
-                  <label htmlFor="amarra_valor_por_pie" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor={`${formId}-amarra_valor_por_pie`} className="block text-sm font-medium text-gray-700 mb-1">
                     Valor Amarra por Pie
                   </label>
                   <input
                     type="number"
-                    id="amarra_valor_por_pie"
+                    id={`${formId}-amarra_valor_por_pie`}
                     name="amarra_valor_por_pie"
                     value={formData.amarra_valor_por_pie ?? ''}
                     onChange={handleChange}
@@ -709,6 +711,11 @@ export default function ConfiguracionClient({ configuracionInicial }: Configurac
               </div>
             </div>
           </form>
+        </div>
+
+        {/* Sección de Configuración de Email (independiente) */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mt-6">
+          <ConfiguracionEmailSection />
         </div>
       </div>
 

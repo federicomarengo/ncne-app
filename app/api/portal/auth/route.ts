@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
+import { logger } from '@/app/utils/logger';
 
 const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 horas
 
@@ -79,7 +80,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error: any) {
-    console.error('Error en autenticación del portal:', error);
+    logger.error('Error en autenticación del portal:', error);
     return NextResponse.json(
       { error: 'Error al autenticar. Por favor, intente nuevamente.' },
       { status: 500 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { cookies } from 'next/headers';
+import { logger } from '@/app/utils/logger';
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
     
     return NextResponse.json({ success: true, message: 'Sesión cerrada correctamente' });
   } catch (error: any) {
-    console.error('Error en logout:', error);
+    logger.error('Error en logout:', error);
     return NextResponse.json(
       { error: 'Error al cerrar sesión' },
       { status: 500 }

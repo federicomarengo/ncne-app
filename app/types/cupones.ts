@@ -44,7 +44,7 @@ export interface Cupon {
 }
 
 export interface ItemPrevia {
-  tipo: 'cuota_social' | 'amarra' | 'visita' | 'interes' | 'muelle_seco' | 'rampa' | 'cuota_plan';
+  tipo: 'cuota_social' | 'amarra' | 'visita' | 'interes' | 'muelle_seco' | 'rampa';
   descripcion: string;
   monto: number;
 }

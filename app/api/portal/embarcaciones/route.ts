@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getPortalSocioId } from '@/utils/portal/session';
+import { logger } from '@/app/utils/logger';
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
       .order('nombre', { ascending: true });
 
     if (error) {
-      console.error('Error al obtener embarcaciones:', error);
+      logger.error('Error al obtener embarcaciones:', error);
       return NextResponse.json(
         { error: 'Error al obtener embarcaciones' },
         { status: 500 }
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ embarcaciones: embarcaciones || [] });
   } catch (error: any) {
-    console.error('Error en API portal/embarcaciones:', error);
+    logger.error('Error en API portal/embarcaciones:', error);
     return NextResponse.json(
       { error: 'Error al obtener embarcaciones' },
       { status: 500 }

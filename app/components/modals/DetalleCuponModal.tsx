@@ -6,6 +6,8 @@ import { Cupon, ItemCupon } from '@/app/types/cupones';
 import { getNombreCompleto } from '@/app/types/socios';
 import { formatDate } from '@/app/utils/formatDate';
 import { createClient } from '@/utils/supabase/client';
+import VistaPreviewEmail from '@/app/components/emails/VistaPreviewEmail';
+import { logger } from '@/app/utils/logger';
 
 interface DetalleCuponModalProps {
   isOpen: boolean;
@@ -20,6 +22,9 @@ export default function DetalleCuponModal({
 }: DetalleCuponModalProps) {
   const [items, setItems] = useState<ItemCupon[]>([]);
   const [loading, setLoading] = useState(false);
+  const [enviandoEmail, setEnviandoEmail] = useState(false);
+  const [mensajeEmail, setMensajeEmail] = useState<{ tipo: 'success' | 'error'; texto: string } | null>(null);
+  const [mostrarPreview, setMostrarPreview] = useState(false);
 
   useEffect(() => {
     if (isOpen && cupon) {
@@ -40,12 +45,12 @@ export default function DetalleCuponModal({
         .order('id', { ascending: true });
 
       if (error) {
-        console.error('Error al cargar items:', error);
+        logger.error('Error al cargar items:', error);
       } else {
         setItems(data || []);
       }
     } catch (err) {
-      console.error('Error al cargar items:', err);
+      logger.error('Error al cargar items:', err);
     } finally {
       setLoading(false);
     }
@@ -79,8 +84,45 @@ export default function DetalleCuponModal({
   };
 
   const handleEnviarEmail = async () => {
-    // TODO: Implementar envío de email
-    alert('Funcionalidad de envío de email próximamente');
+    if (!cupon) return;
+    
+    setEnviandoEmail(true);
+    setMensajeEmail(null);
+
+    try {
+      const response = await fetch('/api/emails/enviar-cupon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cupon_id: cupon.id }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setMensajeEmail({
+          tipo: 'success',
+          texto: data.mensaje || 'Email enviado exitosamente',
+        });
+      } else {
+        setMensajeEmail({
+          tipo: 'error',
+          texto: data.error || 'Error al enviar email',
+        });
+      }
+    } catch (error: any) {
+      setMensajeEmail({
+        tipo: 'error',
+        texto: 'Error al enviar email: ' + error.message,
+      });
+    } finally {
+      setEnviandoEmail(false);
+    }
+  };
+
+  const handleVerPreview = () => {
+    if (!cupon) return;
+    
+    setMostrarPreview(true);
   };
 
   return (
@@ -284,22 +326,51 @@ export default function DetalleCuponModal({
           </div>
         )}
 
+        {/* Mensaje de email */}
+        {mensajeEmail && (
+          <div className={`px-4 py-3 rounded-lg ${
+            mensajeEmail.tipo === 'success' 
+              ? 'bg-green-50 border border-green-200 text-green-700' 
+              : 'bg-red-50 border border-red-200 text-red-700'
+          }`}>
+            {mensajeEmail.texto}
+          </div>
+        )}
+
         {/* Acciones */}
-        <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+        <div className="flex justify-between items-center gap-3 pt-4 border-t border-gray-200">
           <button
-            onClick={handleEnviarEmail}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            onClick={handleVerPreview}
+            disabled={enviandoEmail}
+            className="px-4 py-2 text-blue-600 hover:text-blue-700 font-medium disabled:opacity-50 transition-colors"
           >
-            Enviar por Email
+            👁️ Vista Previa
           </button>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-          >
-            Cerrar
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={handleEnviarEmail}
+              disabled={enviandoEmail}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+            >
+              {enviandoEmail ? '📧 Enviando...' : '📧 Enviar por Email'}
+            </button>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+            >
+              Cerrar
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Modal de Preview */}
+      {mostrarPreview && cupon && (
+        <VistaPreviewEmail
+          cuponId={cupon.id}
+          onClose={() => setMostrarPreview(false)}
+        />
+      )}
     </Modal>
   );
 }

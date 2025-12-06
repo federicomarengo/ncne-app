@@ -3,6 +3,7 @@ import { Pago } from '../types/pagos';
 import PagosTable from '../components/PagosTable';
 import { Suspense } from 'react';
 import { TableSkeleton } from '../components/ui/SkeletonLoader';
+import { logger } from '@/app/utils/logger';
 
 // Revalidar cada 30 segundos
 export const revalidate = 30;
@@ -47,7 +48,7 @@ async function getPagos(limit: number = 100, offset: number = 0): Promise<{ data
     .range(offset, offset + limit - 1);
 
   if (error) {
-    console.error('Error fetching pagos:', error);
+    logger.error('Error fetching pagos:', error);
     return { data: [], total: 0 };
   }
 

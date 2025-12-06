@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { MovimientoBancario, MovimientoProcesado, MatchResult, LineaExtracto, EstadisticasConciliacion, NivelMatch } from '@/app/types/movimientos_bancarios';
 import { parsearExtracto, procesarMovimiento, filtrarTransferenciasRecibidas } from '@/app/utils/parseExtractoBancario';
@@ -10,6 +10,7 @@ import { createClient as createSupabaseClient } from '@/utils/supabase/client';
 import { generarHashMovimiento } from '@/app/utils/generarHashMovimiento';
 import ProgressBar from '@/app/components/ProgressBar';
 import DetalleMovimientoModal from '@/app/components/modals/DetalleMovimientoModal';
+import { logger } from '@/app/utils/logger';
 
 interface ConciliacionClientProps {
   movimientosIniciales: MovimientoBancario[];
@@ -337,7 +338,7 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
         nombreCompleto = `${socio.apellido}, ${socio.nombre}`;
       }
     } catch (error) {
-      console.error('Error al cargar socio:', error);
+      logger.error('Error al cargar socio:', error);
     }
     
     // Actualizar movimientosProcesados para que se refleje en todas las tablas
@@ -422,10 +423,10 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
     }
   };
 
-  // Actualizar estadísticas
-  const actualizarEstadisticas = (movimientos: MovimientoConMatch[]) => {
+  // Memoizar estadísticas para evitar recalcular en cada render
+  const estadisticasMemo = useMemo(() => {
     const stats: EstadisticasConciliacion = {
-      total: movimientos.length,
+      total: movimientosProcesados.length,
       match_exacto: 0,
       match_probable: 0,
       sin_match: 0,
@@ -434,7 +435,7 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
       monto_total: 0,
     };
 
-    movimientos.forEach((m) => {
+    movimientosProcesados.forEach((m) => {
       stats.monto_total += m.movimiento.monto;
       
       // Contar duplicados primero
@@ -456,8 +457,19 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
       }
     });
 
-    setEstadisticas(stats);
-  };
+    return stats;
+  }, [movimientosProcesados]);
+
+  // Actualizar estadísticas cuando cambian los movimientos
+  React.useEffect(() => {
+    setEstadisticas(estadisticasMemo);
+  }, [estadisticasMemo]);
+
+  // Función para actualizar estadísticas (mantener para compatibilidad)
+  const actualizarEstadisticas = useCallback((movimientos: MovimientoConMatch[]) => {
+    // Esta función se mantiene para compatibilidad pero ahora usa el useMemo
+    // El estado se actualiza automáticamente con el useEffect
+  }, []);
 
   // Confirmar movimientos exactos (seleccionados o todos)
   const handleConfirmarExactos = async () => {
@@ -751,36 +763,46 @@ export default function ConciliacionClient({ movimientosIniciales }: Conciliacio
     }
   };
 
-  // Filtrar movimientos por categoría
-  const movimientosMatchExacto = movimientosProcesados.filter(
-    (m) => m.match.nivel === 'A' || m.match.nivel === 'B'
+  // Memoizar filtros de movimientos para evitar recalcular en cada render
+  const movimientosMatchExacto = useMemo(() => 
+    movimientosProcesados.filter((m) => m.match.nivel === 'A' || m.match.nivel === 'B'),
+    [movimientosProcesados]
   );
-  const movimientosMatchProbable = movimientosProcesados.filter(
-    (m) => m.match.nivel === 'C' || m.match.nivel === 'D' || m.match.nivel === 'E'
+  
+  const movimientosMatchProbable = useMemo(() => 
+    movimientosProcesados.filter((m) => m.match.nivel === 'C' || m.match.nivel === 'D' || m.match.nivel === 'E'),
+    [movimientosProcesados]
   );
-  const movimientosSinMatch = movimientosProcesados.filter(
-    (m) => (m.match.nivel === 'F' || m.match.nivel === 'M') && m.estado !== 'ya_registrado'
-    // Incluye movimientos sin match (F) y movimientos asignados manualmente (M) que aún no están procesados
-    // Los procesados se muestran pero con estado diferente
+  
+  const movimientosSinMatch = useMemo(() => 
+    movimientosProcesados.filter(
+      (m) => (m.match.nivel === 'F' || m.match.nivel === 'M') && m.estado !== 'ya_registrado'
+      // Incluye movimientos sin match (F) y movimientos asignados manualmente (M) que aún no están procesados
+      // Los procesados se muestran pero con estado diferente
+    ),
+    [movimientosProcesados]
   );
-  const movimientosDuplicados = movimientosProcesados.filter(
-    (m) => m.estado === 'ya_registrado' || 
-           (m.match.nivel === 'F' && m.match.razon?.includes('duplicado'))
+  
+  const movimientosDuplicados = useMemo(() => 
+    movimientosProcesados.filter(
+      (m) => m.estado === 'ya_registrado' || 
+             (m.match.nivel === 'F' && m.match.razon?.includes('duplicado'))
+    ),
+    [movimientosProcesados]
   );
 
-  // Formatear moneda
-  const formatCurrency = (amount: number) => {
+  // Memoizar funciones de formateo
+  const formatCurrency = useCallback((amount: number) => {
     return new Intl.NumberFormat('es-AR', {
       style: 'currency',
       currency: 'ARS',
     }).format(amount);
-  };
+  }, []);
 
-  // Formatear fecha
-  const formatDate = (dateString: string) => {
+  const formatDate = useCallback((dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('es-AR');
-  };
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-6 lg:p-8">

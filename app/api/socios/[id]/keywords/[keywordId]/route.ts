@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
+import { requireAuth } from '@/app/utils/auth';
+import { logger } from '@/app/utils/logger';
 
 /**
  * DELETE /api/socios/[id]/keywords/[keywordId]
@@ -9,6 +11,9 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; keywordId: string }> | { id: string; keywordId: string } }
 ) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  
   try {
     const supabase = await createClient();
     const resolvedParams = await Promise.resolve(params);
@@ -45,7 +50,7 @@ export async function DELETE(
       .eq('socio_id', socioId);
 
     if (error) {
-      console.error('Error al eliminar keyword:', error);
+      logger.error('Error al eliminar keyword:', error);
       return NextResponse.json(
         { error: 'Error al eliminar keyword' },
         { status: 500 }
@@ -57,7 +62,7 @@ export async function DELETE(
       message: 'Keyword eliminada correctamente'
     });
   } catch (error: any) {
-    console.error('Error en DELETE keyword individual:', error);
+    logger.error('Error en DELETE keyword individual:', error);
     return NextResponse.json(
       { error: 'Error interno del servidor' },
       { status: 500 }

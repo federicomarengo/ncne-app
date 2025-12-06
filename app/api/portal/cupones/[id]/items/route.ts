@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getPortalSocioId } from '@/utils/portal/session';
+import { logger } from '@/app/utils/logger';
 
 export async function GET(
   request: NextRequest,
@@ -50,7 +51,7 @@ export async function GET(
       .order('id', { ascending: true });
 
     if (error) {
-      console.error('Error al obtener items del cupón:', error);
+      logger.error('Error al obtener items del cupón:', error);
       return NextResponse.json(
         { error: 'Error al obtener items del cupón' },
         { status: 500 }
@@ -59,7 +60,7 @@ export async function GET(
 
     return NextResponse.json({ items: items || [] });
   } catch (error: any) {
-    console.error('Error en API portal/cupones/[id]/items:', error);
+    logger.error('Error en API portal/cupones/[id]/items:', error);
     return NextResponse.json(
       { error: 'Error al obtener items del cupón' },
       { status: 500 }

@@ -9,6 +9,7 @@
 import { MatchResult, NivelMatch, MovimientoProcesado } from '@/app/types/movimientos_bancarios';
 import { normalizarTexto, normalizarCUITCUIL, normalizarDNI } from './normalizarTexto';
 import { porcentajeSimilitud, similitudNombreCompleto } from './calcularSimilitud';
+import { logger } from '@/app/utils/logger';
 
 /**
  * Ejecuta el matching jerárquico para un movimiento bancario
@@ -99,7 +100,7 @@ async function matchNivelA(movimiento: MovimientoProcesado, supabase: any): Prom
       `${data.apellido} ${data.nombre}`
     );
   } catch (error) {
-    console.error('Error en match Nivel A:', error);
+    logger.error('Error en match Nivel A:', error);
     return crearMatchResult(null, 'A', 0, 'Error al buscar por CUIT/CUIL');
   }
 }
@@ -151,7 +152,7 @@ async function matchNivelB(movimiento: MovimientoProcesado, supabase: any): Prom
       `${data.apellido} ${data.nombre}`
     );
   } catch (error) {
-    console.error('Error en match Nivel B:', error);
+    logger.error('Error en match Nivel B:', error);
     return crearMatchResult(null, 'B', 0, 'Error al buscar por DNI');
   }
 }
@@ -211,7 +212,7 @@ async function matchNivelC(movimiento: MovimientoProcesado, supabase: any): Prom
 
     return mejorMatch || crearMatchResult(null, 'C', 0, 'No se encontró match bidireccional');
   } catch (error) {
-    console.error('Error en match Nivel C:', error);
+    logger.error('Error en match Nivel C:', error);
     return crearMatchResult(null, 'C', 0, 'Error en match bidireccional');
   }
 }
@@ -268,7 +269,7 @@ async function matchNivelD(movimiento: MovimientoProcesado, supabase: any): Prom
 
     return mejorMatch || crearMatchResult(null, 'D', 0, 'No se encontró match por nombre completo');
   } catch (error) {
-    console.error('Error en match Nivel D:', error);
+    logger.error('Error en match Nivel D:', error);
     return crearMatchResult(null, 'D', 0, 'Error al buscar por nombre');
   }
 }
@@ -316,7 +317,7 @@ async function matchNivelE(movimiento: MovimientoProcesado, supabase: any): Prom
 
     return mejorMatch || crearMatchResult(null, 'E', 0, 'No se encontró match por similitud');
   } catch (error) {
-    console.error('Error en match Nivel E:', error);
+    logger.error('Error en match Nivel E:', error);
     return crearMatchResult(null, 'E', 0, 'Error al buscar por similitud');
   }
 }
@@ -358,7 +359,7 @@ async function matchNivelE5(movimiento: MovimientoProcesado, supabase: any): Pro
 
     return crearMatchResult(null, 'E', 0, 'No se encontró match por keywords relacionadas');
   } catch (error) {
-    console.error('Error en match Nivel E.5 (keywords):', error);
+    logger.error('Error en match Nivel E.5 (keywords):', error);
     return crearMatchResult(null, 'E', 0, 'Error al buscar por keywords relacionadas');
   }
 }

@@ -3,6 +3,7 @@ import EmbarcacionesTable from '../components/EmbarcacionesTable'
 import { Embarcacion } from '../types/embarcaciones'
 import { Suspense } from 'react'
 import { TableSkeleton } from '../components/ui/SkeletonLoader'
+import { logger } from '@/app/utils/logger';
 
 // Revalidar cada 30 segundos
 export const revalidate = 30;
@@ -38,7 +39,7 @@ async function getEmbarcaciones(limit: number = 100, offset: number = 0): Promis
     .range(offset, offset + limit - 1)
 
   if (error) {
-    console.error('Error fetching embarcaciones:', error)
+    logger.error('Error fetching embarcaciones:', error)
     return { data: [], total: 0 }
   }
 

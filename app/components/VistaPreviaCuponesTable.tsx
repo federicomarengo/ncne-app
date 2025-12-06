@@ -89,9 +89,6 @@ export default function VistaPreviaCuponesTable({
                 Visitas
               </th>
               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                Cuotas Planes
-              </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
                 Intereses
               </th>
               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
@@ -156,9 +153,6 @@ export default function VistaPreviaCuponesTable({
                           ({item.visitas.length} visita{item.visitas.length > 1 ? 's' : ''})
                         </span>
                       )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 text-right">
-                      {formatCurrency(item.montoCuotasPlanes)}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 text-right">
                       {formatCurrency(item.montoIntereses)}

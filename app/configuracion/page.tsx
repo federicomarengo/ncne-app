@@ -2,6 +2,7 @@ import { obtenerConfiguracion } from '@/app/utils/configuracion';
 import ConfiguracionClient from './ConfiguracionClient';
 import { notFound } from 'next/navigation';
 import { createClient } from '@/utils/supabase/server';
+import { logger } from '@/app/utils/logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +13,7 @@ export default async function ConfiguracionPage() {
     const supabase = await createClient();
     configuracion = await obtenerConfiguracion(supabase);
   } catch (error) {
-    console.error('Error al cargar configuración:', error);
+    logger.error('Error al cargar configuración:', error);
     notFound();
   }
 

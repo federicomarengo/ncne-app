@@ -8,6 +8,7 @@ import { MetodoPago, METODOS_PAGO } from '@/app/types/pagos';
 import { createClient } from '@/utils/supabase/client';
 import { aplicarPagoACupones } from '@/app/utils/aplicarPagoACupones';
 import { calcularSaldoPendienteCupon } from '@/app/utils/calcularSaldoPendienteCupon';
+import { logger } from '@/app/utils/logger';
 
 interface RegistrarPagoModalProps {
   isOpen: boolean;
@@ -82,12 +83,12 @@ export default function RegistrarPagoModal({
         .order('apellido', { ascending: true });
 
       if (error) {
-        console.error('Error al cargar socios:', error);
+        logger.error('Error al cargar socios:', error);
       } else {
         setSocios((data as Socio[]) || []);
       }
     } catch (err) {
-      console.error('Error al cargar socios:', err);
+      logger.error('Error al cargar socios:', err);
     } finally {
       setLoadingSocios(false);
     }
@@ -105,13 +106,13 @@ export default function RegistrarPagoModal({
         .order('fecha_vencimiento', { ascending: true });
 
       if (error) {
-        console.error('Error al cargar cupones:', error);
+        logger.error('Error al cargar cupones:', error);
         setCupones([]);
       } else {
         setCupones((data as Cupon[]) || []);
       }
     } catch (err) {
-      console.error('Error al cargar cupones:', err);
+      logger.error('Error al cargar cupones:', err);
       setCupones([]);
     } finally {
       setLoadingCupones(false);
@@ -189,7 +190,7 @@ export default function RegistrarPagoModal({
             });
 
           if (errorPagoCupon) {
-            console.error('Error al crear relación pago-cupón:', errorPagoCupon);
+            logger.error('Error al crear relación pago-cupón:', errorPagoCupon);
           }
 
           // Si el cupón queda completamente pagado, marcarlo
@@ -203,7 +204,7 @@ export default function RegistrarPagoModal({
               .eq('id', parseInt(cuponId));
 
             if (errorCupon) {
-              console.error('Error al actualizar cupón:', errorCupon);
+              logger.error('Error al actualizar cupón:', errorCupon);
             }
           }
         }

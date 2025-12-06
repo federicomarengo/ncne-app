@@ -6,6 +6,7 @@ import { MovimientoProcesado, MatchResult } from '@/app/types/movimientos_bancar
 import { createClient } from '@/utils/supabase/client';
 import SelectorSocio from '../SelectorSocio';
 import { confirmarPagoDesdeMovimiento } from '@/app/utils/confirmarPagoConciliacion';
+import { logger } from '@/app/utils/logger';
 
 interface DetalleMovimientoModalProps {
   isOpen: boolean;
@@ -71,7 +72,7 @@ export default function DetalleMovimientoModal({
       if (error) throw error;
       setSocioData(data);
     } catch (err) {
-      console.error('Error al cargar socio:', err);
+      logger.error('Error al cargar socio:', err);
     }
   };
 

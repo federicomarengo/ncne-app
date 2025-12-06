@@ -1,3 +1,4 @@
+import { logger } from '@/app/utils/logger';
 /**
  * Utilidades para verificar duplicados antes de crear un pago
  * 
@@ -47,7 +48,7 @@ export async function verificarDuplicadoPago(
       .maybeSingle();
     
     if (error) {
-      console.error('Error al verificar por referencia bancaria:', error);
+      logger.error('Error al verificar por referencia bancaria:', error);
     } else if (pagoPorRef) {
       return {
         esDuplicado: true,
@@ -68,7 +69,7 @@ export async function verificarDuplicadoPago(
       .maybeSingle();
     
     if (error) {
-      console.error('Error al verificar por movimiento bancario:', error);
+      logger.error('Error al verificar por movimiento bancario:', error);
     } else if (pagoPorMovimiento) {
       return {
         esDuplicado: true,
@@ -117,7 +118,7 @@ export async function verificarDuplicadoPago(
       .maybeSingle();
     
     if (error) {
-      console.error('Error al verificar por número de comprobante:', error);
+      logger.error('Error al verificar por número de comprobante:', error);
     } else if (pagoPorComprobante) {
       return {
         esDuplicado: true,
@@ -150,7 +151,7 @@ export async function verificarDuplicadoPago(
     .lte('fecha_pago', fechaMax.toISOString().split('T')[0]);
 
   if (errorSimilares) {
-    console.error('Error al verificar pagos similares:', errorSimilares);
+    logger.error('Error al verificar pagos similares:', errorSimilares);
   } else if (pagosSimilares && pagosSimilares.length > 0) {
     // Buscar coincidencia exacta (mismo monto y misma fecha)
     const pagoExacto = pagosSimilares.find(

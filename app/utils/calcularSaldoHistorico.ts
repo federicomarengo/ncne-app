@@ -1,3 +1,4 @@
+import { logger } from '@/app/utils/logger';
 /**
  * Calcula el saldo acumulado de un socio hasta una fecha específica
  * 
@@ -63,7 +64,7 @@ export async function calcularSaldoHistorico(
 
     return saldo;
   } catch (error) {
-    console.error('Error al calcular saldo histórico:', error);
+    logger.error('Error al calcular saldo histórico:', error);
     return 0;
   }
 }

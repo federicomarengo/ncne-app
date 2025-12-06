@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
+import { requireAuth } from '@/app/utils/auth';
+import { pagoCuponCreateSchema, pagoCuponUpdateSchema, validateAndParse } from '@/app/utils/validations';
+import { logger } from '@/app/utils/logger';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  
   try {
     const resolvedParams = await Promise.resolve(params);
     const pagoId = parseInt(resolvedParams.id);
@@ -50,7 +56,7 @@ export async function GET(
       .eq('pago_id', pagoId);
 
     if (error) {
-      console.error('Error al obtener cupones del pago:', error);
+      logger.error('Error al obtener cupones del pago:', error);
       return NextResponse.json(
         { error: 'Error al obtener cupones del pago' },
         { status: 500 }
@@ -59,7 +65,7 @@ export async function GET(
 
     return NextResponse.json({ cupones: pagosCupones || [] });
   } catch (error: any) {
-    console.error('Error en API pagos/[id]/cupones GET:', error);
+    logger.error('Error en API pagos/[id]/cupones GET:', error);
     return NextResponse.json(
       { error: 'Error al obtener cupones del pago' },
       { status: 500 }
@@ -71,6 +77,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  
   try {
     const resolvedParams = await Promise.resolve(params);
     const pagoId = parseInt(resolvedParams.id);
@@ -83,7 +92,18 @@ export async function POST(
     }
 
     const body = await request.json();
+    
+    // Validar datos de entrada
+    const validation = validateAndParse(pagoCuponCreateSchema, body);
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: validation.error },
+        { status: 400 }
+      );
+    }
+    
     const supabase = await createClient();
+    const validatedBody = validation.data;
 
     // Verificar que el pago existe
     const { data: pago, error: pagoError } = await supabase
@@ -99,28 +119,13 @@ export async function POST(
       );
     }
 
-    // Validar datos
-    if (!body.cupon_id) {
-      return NextResponse.json(
-        { error: 'ID de cupón es obligatorio' },
-        { status: 400 }
-      );
-    }
-
-    const montoAplicado = body.monto_aplicado ? parseFloat(body.monto_aplicado) : 0;
-
-    if (montoAplicado <= 0) {
-      return NextResponse.json(
-        { error: 'El monto aplicado debe ser mayor a 0' },
-        { status: 400 }
-      );
-    }
+    const montoAplicado = validatedBody.monto_aplicado;
 
     // Verificar que el cupón existe y pertenece al mismo socio
     const { data: cupon, error: cuponError } = await supabase
       .from('cupones')
       .select('id, socio_id, monto_total, estado')
-      .eq('id', body.cupon_id)
+      .eq('id', validatedBody.cupon_id)
       .single();
 
     if (cuponError || !cupon) {
@@ -160,7 +165,7 @@ export async function POST(
       .from('pagos_cupones')
       .insert({
         pago_id: pagoId,
-        cupon_id: body.cupon_id,
+        cupon_id: validatedBody.cupon_id,
         monto_aplicado: montoAplicado,
       })
       .select(`
@@ -178,7 +183,7 @@ export async function POST(
       .single();
 
     if (insertError) {
-      console.error('Error al crear asociación:', insertError);
+      logger.error('Error al crear asociación:', insertError);
       return NextResponse.json(
         { error: 'Error al crear asociación con cupón' },
         { status: 500 }
@@ -190,12 +195,12 @@ export async function POST(
       await supabase
         .from('cupones')
         .update({ estado: 'pagado', fecha_pago: new Date().toISOString().split('T')[0] })
-        .eq('id', body.cupon_id);
+        .eq('id', validatedBody.cupon_id);
     }
 
     return NextResponse.json({ pagoCupon: nuevoPagoCupon }, { status: 201 });
   } catch (error: any) {
-    console.error('Error en API pagos/[id]/cupones POST:', error);
+    logger.error('Error en API pagos/[id]/cupones POST:', error);
     return NextResponse.json(
       { error: 'Error al crear asociación con cupón' },
       { status: 500 }
@@ -207,6 +212,9 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  
   try {
     const resolvedParams = await Promise.resolve(params);
     const pagoId = parseInt(resolvedParams.id);
@@ -219,20 +227,24 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const supabase = await createClient();
-
-    if (!body.pago_cupon_id) {
+    
+    // Validar datos de entrada
+    const validation = validateAndParse(pagoCuponUpdateSchema, body);
+    if (!validation.success) {
       return NextResponse.json(
-        { error: 'ID de asociación es obligatorio' },
+        { error: validation.error },
         { status: 400 }
       );
     }
+    
+    const supabase = await createClient();
+    const validatedBody = validation.data;
 
     // Verificar que la asociación existe y pertenece al pago
     const { data: pagoCuponExistente, error: pagoCuponError } = await supabase
       .from('pagos_cupones')
       .select('id, pago_id, cupon_id')
-      .eq('id', body.pago_cupon_id)
+      .eq('id', validatedBody.pago_cupon_id)
       .eq('pago_id', pagoId)
       .single();
 
@@ -243,14 +255,7 @@ export async function PUT(
       );
     }
 
-    const montoAplicado = body.monto_aplicado ? parseFloat(body.monto_aplicado) : 0;
-
-    if (montoAplicado <= 0) {
-      return NextResponse.json(
-        { error: 'El monto aplicado debe ser mayor a 0' },
-        { status: 400 }
-      );
-    }
+    const montoAplicado = validatedBody.monto_aplicado;
 
     // Verificar que no se exceda el monto del pago
     const { data: pago } = await supabase
@@ -263,7 +268,7 @@ export async function PUT(
       .from('pagos_cupones')
       .select('monto_aplicado')
       .eq('pago_id', pagoId)
-      .neq('id', body.pago_cupon_id);
+      .neq('id', validatedBody.pago_cupon_id);
 
     const totalAplicado = (cuponesExistentes || []).reduce(
       (sum, pc) => sum + parseFloat(pc.monto_aplicado.toString()),
@@ -281,7 +286,7 @@ export async function PUT(
     const { data: pagoCuponActualizado, error: updateError } = await supabase
       .from('pagos_cupones')
       .update({ monto_aplicado: montoAplicado })
-      .eq('id', body.pago_cupon_id)
+      .eq('id', validatedBody.pago_cupon_id)
       .select(`
         *,
         cupon:cupones (
@@ -297,7 +302,7 @@ export async function PUT(
       .single();
 
     if (updateError) {
-      console.error('Error al actualizar asociación:', updateError);
+      logger.error('Error al actualizar asociación:', updateError);
       return NextResponse.json(
         { error: 'Error al actualizar asociación' },
         { status: 500 }
@@ -325,7 +330,7 @@ export async function PUT(
 
     return NextResponse.json({ pagoCupon: pagoCuponActualizado });
   } catch (error: any) {
-    console.error('Error en API pagos/[id]/cupones PUT:', error);
+    logger.error('Error en API pagos/[id]/cupones PUT:', error);
     return NextResponse.json(
       { error: 'Error al actualizar asociación' },
       { status: 500 }
@@ -337,6 +342,9 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  
   try {
     const resolvedParams = await Promise.resolve(params);
     const pagoId = parseInt(resolvedParams.id);
@@ -382,7 +390,7 @@ export async function DELETE(
       .eq('id', parseInt(pagoCuponId));
 
     if (deleteError) {
-      console.error('Error al eliminar asociación:', deleteError);
+      logger.error('Error al eliminar asociación:', deleteError);
       return NextResponse.json(
         { error: 'Error al eliminar asociación' },
         { status: 500 }
@@ -397,7 +405,7 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    console.error('Error en API pagos/[id]/cupones DELETE:', error);
+    logger.error('Error en API pagos/[id]/cupones DELETE:', error);
     return NextResponse.json(
       { error: 'Error al eliminar asociación' },
       { status: 500 }

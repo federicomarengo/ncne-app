@@ -5,6 +5,7 @@ import Modal from '../ui/Modal';
 import { TipoEmbarcacion, TIPOS_EMBARCACION } from '@/app/types/embarcaciones';
 import { createClient } from '@/utils/supabase/client';
 import { Socio, getNombreCompleto } from '@/app/types/socios';
+import { logger } from '@/app/utils/logger';
 
 interface NuevaEmbarcacionModalProps {
   isOpen: boolean;
@@ -58,12 +59,12 @@ export default function NuevaEmbarcacionModal({
         .order('apellido', { ascending: true });
 
       if (error) {
-        console.error('Error al cargar socios:', error);
+        logger.error('Error al cargar socios:', error);
       } else {
         setSocios((data as Socio[]) || []);
       }
     } catch (err) {
-      console.error('Error al cargar socios:', err);
+      logger.error('Error al cargar socios:', err);
     } finally {
       setLoadingSocios(false);
     }
@@ -115,7 +116,7 @@ export default function NuevaEmbarcacionModal({
           .limit(1);
 
         if (checkError) {
-          console.error('Error al verificar matrícula:', checkError);
+          logger.error('Error al verificar matrícula:', checkError);
         } else if (existing && existing.length > 0) {
           throw new Error('Ya existe una embarcación con esta matrícula');
         }

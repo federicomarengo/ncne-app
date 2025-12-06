@@ -3,6 +3,7 @@ import { Visita } from '../types/visitas';
 import VisitasTable from '../components/VisitasTable';
 import { Suspense } from 'react';
 import { TableSkeleton } from '../components/ui/SkeletonLoader';
+import { logger } from '@/app/utils/logger';
 
 // Revalidar cada 30 segundos
 export const revalidate = 30;
@@ -41,7 +42,7 @@ async function getVisitas(limit: number = 100, offset: number = 0): Promise<{ da
     .range(offset, offset + limit - 1);
 
   if (error) {
-    console.error('Error fetching visitas:', error);
+    logger.error('Error fetching visitas:', error);
     return { data: [], total: 0 };
   }
 

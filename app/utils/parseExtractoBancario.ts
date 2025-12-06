@@ -8,6 +8,7 @@
 
 import { LineaExtracto, MovimientoProcesado } from '@/app/types/movimientos_bancarios';
 import { extraerNombreDelConcepto, normalizarTexto, normalizarCUITCUIL, normalizarDNI } from './normalizarTexto';
+import { logger } from '@/app/utils/logger';
 
 /**
  * Limpia el contenido del archivo eliminando encabezados, líneas de saldo y contenido no relevante
@@ -107,7 +108,7 @@ export function parsearExtracto(contenido: string): LineaExtracto[] {
         movimientos.push(movimiento);
       }
     } catch (error) {
-      console.error('Error al parsear línea:', linea, error);
+      logger.error('Error al parsear línea:', linea, error);
       // Continuar con la siguiente línea
     }
   }
@@ -236,8 +237,8 @@ function normalizarFecha(fechaStr: string): string {
     throw new Error('Formato de fecha inválido');
   }
 
-  let dia = parseInt(partes[0]);
-  let mes = parseInt(partes[1]);
+  const dia = parseInt(partes[0]);
+  const mes = parseInt(partes[1]);
   let anio = parseInt(partes[2]);
 
   // Si el año tiene 2 dígitos, asumir 2000-2099

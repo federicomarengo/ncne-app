@@ -10,6 +10,7 @@ import { generarHashMovimiento } from './generarHashMovimiento';
 import { logError } from './logErrores';
 import { normalizarCUITCUIL, normalizarDNI } from './normalizarTexto';
 import { aplicarPagoACupones } from './aplicarPagoACupones';
+import { logger } from '@/app/utils/logger';
 
 interface ConfirmarPagoResult {
   success: boolean;
@@ -53,7 +54,7 @@ export async function confirmarPagoDesdeMovimiento(
       .maybeSingle();
 
     if (errorBusqueda) {
-      console.error('Error al buscar movimiento duplicado:', errorBusqueda);
+      logger.error('Error al buscar movimiento duplicado:', errorBusqueda);
     }
 
     let movimientoGuardado: any;
@@ -186,7 +187,7 @@ export async function confirmarPagoDesdeMovimiento(
 
     // Log del resultado para debugging
     if (resultadoAplicacion.excedente > 0) {
-      console.log(`Pago aplicado: ${cuponesAsociados.length} cupones, excedente: $${resultadoAplicacion.excedente} guardado como saldo a favor`);
+      logger.log(`Pago aplicado: ${cuponesAsociados.length} cupones, excedente: $${resultadoAplicacion.excedente} guardado como saldo a favor`);
     }
 
     // 6. Actualizar movimiento con el pago_id
@@ -224,14 +225,14 @@ export async function confirmarPagoDesdeMovimiento(
 
             // Ignorar errores de duplicados (constraint único)
             if (errorKeyword && errorKeyword.code !== '23505') {
-              console.error('Error al guardar keyword:', errorKeyword);
+              logger.error('Error al guardar keyword:', errorKeyword);
             }
           }
         }
         // NUNCA guardar DNI - solo CUIT/CUIL
       } catch (error) {
         // Logging silencioso - no fallar la confirmación por error en keywords
-        console.error('Error al guardar keywords (no crítico):', error);
+        logger.error('Error al guardar keywords (no crítico):', error);
       }
     }
 
@@ -242,7 +243,7 @@ export async function confirmarPagoDesdeMovimiento(
       cuponesAsociados,
     };
   } catch (error: any) {
-    console.error('Error al confirmar pago:', error);
+    logger.error('Error al confirmar pago:', error);
     
     // Loggear error para revisión posterior
     logError(

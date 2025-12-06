@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
+import { logger } from '@/app/utils/logger';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -36,7 +37,7 @@ export default function LoginPage() {
       }
     } catch (err: any) {
       setError('Error al iniciar sesión. Por favor, intente nuevamente.');
-      console.error('Error en login:', err);
+      logger.error('Error en login:', err);
     } finally {
       setLoading(false);
     }

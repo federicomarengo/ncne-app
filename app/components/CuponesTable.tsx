@@ -6,6 +6,7 @@ import { Cupon, EstadoCupon } from '@/app/types/cupones';
 import { filterCupones } from '@/app/utils/filterCupones';
 import { formatDate } from '@/app/utils/formatDate';
 import { createClient } from '@/utils/supabase/client';
+import { logger } from '@/app/utils/logger';
 
 interface Periodo {
   mes: number;
@@ -36,7 +37,7 @@ export default function CuponesTable() {
           .order('periodo_mes', { ascending: false });
 
         if (error) {
-          console.error('Error al cargar períodos:', error);
+          logger.error('Error al cargar períodos:', error);
           return;
         }
 
@@ -66,7 +67,7 @@ export default function CuponesTable() {
           });
         }
       } catch (err) {
-        console.error('Error al cargar períodos:', err);
+        logger.error('Error al cargar períodos:', err);
       }
     };
 
@@ -114,7 +115,7 @@ export default function CuponesTable() {
           .order('numero_cupon', { ascending: true });
 
         if (error) {
-          console.error('Error al cargar cupones:', error);
+          logger.error('Error al cargar cupones:', error);
           setCupones([]);
           return;
         }
@@ -129,7 +130,7 @@ export default function CuponesTable() {
 
         setCupones(cuponesTransformados);
       } catch (err) {
-        console.error('Error al cargar cupones:', err);
+        logger.error('Error al cargar cupones:', err);
         setCupones([]);
       } finally {
         setLoading(false);
@@ -423,6 +424,15 @@ export default function CuponesTable() {
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => router.push(`/cupones/${cupon.id}/eliminar`)}
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                          title="Eliminar cupón"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                           </svg>
                         </button>
                       </div>

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import DashboardSocio from './DashboardSocio';
+import { logger } from '@/app/utils/logger';
 
 export default function PortalPage() {
   const router = useRouter();
@@ -78,7 +79,7 @@ export default function PortalPage() {
         method: 'POST',
       });
     } catch (err) {
-      console.error('Error al cerrar sesión:', err);
+      logger.error('Error al cerrar sesión:', err);
     } finally {
       setSocioAutenticado(null);
       setDni('');
